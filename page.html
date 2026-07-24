@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<!--
+    ==========================================================================
+    LOVE PAGE GENERATOR - TEMPLATE TRANG TÌNH YÊU
+    Template này được render bởi Jinja2 trong app.py.
+    Toàn bộ CSS và JS được nhúng thẳng vào file (inline) để trang HTML
+    xuất ra là MỘT FILE DUY NHẤT, độc lập, có thể chia sẻ mà không phụ
+    thuộc vào file tĩnh nào khác.
+    ==========================================================================
+-->
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="{{ primary_color }}" />
+
+    <!-- SEO / chia sẻ mạng xã hội -->
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ message }}" />
+    <meta property="og:title" content="{{ title }}" />
+    <meta property="og:description" content="{{ message }}" />
+    <meta property="og:type" content="website" />
+    {% if bg_image_data %}
+    <meta property="og:image" content="{{ bg_image_data }}" />
+    {% endif %}
+
+    <!-- Google Fonts: chữ viết tay lãng mạn + font chính -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Playfair+Display:ital,wght@1,600&family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet"
+    />
+
+    <!-- Favicon trái tim (emoji data-uri, không cần file ngoài) -->
+    <link
+        rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>"
+    />
+
+    <style>
+        /* ================= CSS ĐƯỢC NHÚNG TỪ static/css/style.css ================= */
+        {{ css_content|safe }}
+
+        /* ================= GHI ĐÈ BIẾN MÀU THEO NGƯỜI DÙNG CHỌN ================= */
+        :root {
+            --primary-color: {{ primary_color }};
+            --secondary-color: {{ secondary_color }};
+            --accent-color: {{ accent_color }};
+            --glow-color: {{ glow_color }};
+            --heart-speed: {{ heart_speed }}s;
+        }
+
+        {% if bg_image_data %}
+        body {
+            background-image: url('{{ bg_image_data }}');
+        }
+        {% endif %}
+    </style>
+</head>
+<body
+    class="{% if bg_image_data %}has-bg-image{% endif %}"
+    data-heart-count="{{ heart_count }}"
+    data-heart-speed="{{ heart_speed }}"
+    data-youtube-id="{{ youtube_id }}"
+    data-song-title="{{ song_title }}"
+    data-primary-color="{{ primary_color }}"
+    data-message="{{ message }}"
+>
+
+    <!-- ====================================================================
+         LỚP NỀN: overlay hồng blur + ánh sáng lung linh (aurora)
+         ==================================================================== -->
+    <div class="bg-overlay"></div>
+    <div class="aurora-light"></div>
+
+    <!-- ====================================================================
+         LỚP PARTICLE (canvas) - vẽ bằng JS
+         ==================================================================== -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- ====================================================================
+         LỚP TRÁI TIM BAY LIÊN TỤC
+         ==================================================================== -->
+    <div id="hearts-container"></div>
+
+    <!-- ====================================================================
+         OVERLAY "CHẠM ĐỂ BẮT ĐẦU" (xử lý autoplay bị trình duyệt chặn)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="tap-overlay" id="tap-overlay">
+        <div class="pulse-heart">❤️</div>
+        <p>Chạm vào màn hình để bắt đầu</p>
+        <span class="small">{{ song_title }}</span>
+    </div>
+    {% endif %}
+
+    <!-- ====================================================================
+         NỘI DUNG TRUNG TÂM: avatar + dòng chữ + ngày tháng
+         ==================================================================== -->
+    <div class="center-wrapper">
+        <div class="glass-card">
+
+            {% if avatar_data %}
+            <div class="avatar-ring">
+                <img src="{{ avatar_data }}" alt="avatar" />
+            </div>
+            {% endif %}
+
+            <div class="main-message">{{ message }}</div>
+
+            <div class="sub-text">Được gửi bằng tất cả yêu thương</div>
+
+            {% if generated_date %}
+            <div class="date-text">{{ generated_date }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         THANH ĐIỀU KHIỂN NHẠC (chỉ hiện nếu có bài hát)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="music-bar">
+        <button id="play-pause-btn" class="play-btn" aria-label="Play/Pause"></button>
+
+        <div class="track-info">
+            <span class="track-title">{{ song_title }}</span>
+        </div>
+
+        <div class="eq-bars">
+            <span></span><span></span><span></span>
+        </div>
+
+        <div class="volume-wrap">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+                <path
+                    fill="currentColor"
+                    d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-.77-3.29-2-4.2v8.4c1.23-.91 2-2.43 2-4.2z"
+                />
+            </svg>
+            <input type="range" id="volume-slider" min="0" max="100" value="70" />
+        </div>
+    </div>
+
+    <!-- Div ẩn chứa YouTube player (âm thanh, không hiện khung hình) -->
+    <div id="yt-player" style="position:fixed; bottom:-200px; left:-200px; width:1px; height:1px; opacity:0;"></div>
+    {% endif %}
+
+    <!-- ====================================================================
+         CHỮ KÝ CUỐI TRANG
+         ==================================================================== -->
+    <div class="signature-footer">💌 made with Love Page Generator</div>
+
+    <!-- ====================================================================
+         SCRIPT: nhúng toàn bộ static/js/effects.js
+         ==================================================================== -->
+    <script>
+        {{ js_content|safe }}
+    </script>
+</body>
+</html>
