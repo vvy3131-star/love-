@@ -9,15 +9,25 @@ requirements.txt là chạy được.
 
 Cách chạy:
     pip install -r requirements.txt
-    streamlit run app.py --server.enableStaticServing true
+    streamlit run app.py
 
-Vì sao cần cờ --server.enableStaticServing true:
-    Đây là tính năng chính thức của Streamlit cho phép serve file tĩnh
-    (ở đây là các trang .html đã tạo) ra ngoài qua đường dẫn
-    /app/static/... để có thể sinh link chia sẻ thật, không phải chỉ lưu
-    file cục bộ. App sẽ tự kiểm tra và cảnh báo nếu bạn quên bật cờ này,
-    đồng thời tự ghi sẵn .streamlit/config.toml để các lần chạy sau chỉ
-    cần gõ "streamlit run app.py".
+------------------------------------------------------------------------------
+GHI CHÚ SỬA LỖI "không tải được trang web kết quả":
+    Bản trước dùng tính năng enableStaticServing của Streamlit để serve file
+    tĩnh ở /app/static/... Vấn đề là Streamlit CHỈ đọc config.toml MỘT LẦN
+    lúc khởi động server, trước khi app.py kịp chạy — nên việc tự ghi
+    config.toml từ trong script luôn đến quá trễ, và trên nhiều nền tảng
+    deploy (Streamlit Community Cloud, Render dùng buildpack mặc định...)
+    bạn không thể tự thêm cờ --server.enableStaticServing được, khiến link
+    luôn bị lỗi 404 / không tải được.
+
+    => Đã chuyển sang cơ chế "xem trang qua query param" ngay trong chính
+    app này: link chia sẻ có dạng {domain}/?page=<id>. Khi ai đó mở link,
+    Streamlit chạy lại script, app.py phát hiện có tham số ?page=<id> trên
+    URL và tự động hiển thị đúng trang tình yêu tương ứng (ẩn toàn bộ giao
+    diện tạo trang / sidebar đi). Cách này chạy được ngay với
+    "streamlit run app.py" thông thường, không cần cờ, không cần khởi động
+    lại, và hoạt động trên mọi nền tảng deploy.
 
 Tác giả: Senior Python Developer
 ==============================================================================
@@ -1156,49 +1166,19 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 
 
 # ==============================================================================
-# 2. CẤU HÌNH ĐƯỜNG DẪN & TỰ ĐỘNG GHI .streamlit/config.toml
+# 2. CẤU HÌNH ĐƯỜNG DẪN
 # ==============================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STREAMLIT_DIR = os.path.join(BASE_DIR, ".streamlit")
-CONFIG_TOML_PATH = os.path.join(STREAMLIT_DIR, "config.toml")
 PAGES_DIR = os.path.join(BASE_DIR, "static", "pages")
 INDEX_JSON_PATH = os.path.join(PAGES_DIR, "_index.json")
 
-# Đảm bảo các thư mục cần thiết luôn tồn tại (chỉ còn duy nhất thư mục lưu
-# trang đã tạo, vì CSS/JS/HTML template giờ đã nằm trong chính file này).
+# Đảm bảo thư mục lưu trang đã tạo luôn tồn tại (nơi lưu file .html gốc,
+# dùng để "xem trước" trong app và để route ?page=<id> đọc lại khi chia sẻ).
 os.makedirs(PAGES_DIR, exist_ok=True)
 
 MAX_IMAGE_DIMENSION = 1600      # giới hạn cạnh lớn nhất của ảnh nền
 MAX_AVATAR_DIMENSION = 500      # giới hạn cạnh lớn nhất của avatar
 JPEG_QUALITY = 82                # chất lượng nén ảnh khi convert sang JPEG
-
-
-def ensure_static_serving_config():
-    """
-    Tự động ghi file .streamlit/config.toml (nếu chưa có) để bật
-    enableStaticServing = true. Nhờ vậy, từ lần chạy thứ 2 trở đi, người
-    dùng chỉ cần gõ "streamlit run app.py" mà không cần thêm cờ dòng lệnh.
-    """
-    if os.path.exists(CONFIG_TOML_PATH):
-        return
-
-    os.makedirs(STREAMLIT_DIR, exist_ok=True)
-    config_content = (
-        "[server]\n"
-        "enableStaticServing = true\n"
-        "maxUploadSize = 15\n"
-        "\n"
-        "[browser]\n"
-        "gatherUsageStats = false\n"
-    )
-    try:
-        with open(CONFIG_TOML_PATH, "w", encoding="utf-8") as f:
-            f.write(config_content)
-    except Exception:  # noqa: BLE001 - không ghi được cũng không sao, chỉ là tiện ích
-        pass
-
-
-ensure_static_serving_config()
 
 
 # ==============================================================================
@@ -1476,8 +1456,13 @@ def get_base_url() -> str:
 
 
 def build_share_url(page_id: str) -> str:
+    """
+    Sinh link chia sẻ dạng {domain}/?page=<id>. Khi ai đó mở link này,
+    Streamlit chạy lại app.py, hàm main() phát hiện query param "page"
+    và tự hiển thị đúng trang tình yêu đó (xem render_page_viewer()).
+    """
     base_url = get_base_url()
-    return f"{base_url}/app/static/pages/{page_id}.html"
+    return f"{base_url}/?page={page_id}"
 
 
 # ==============================================================================
@@ -1500,13 +1485,50 @@ def generate_qr_code_bytes(url: str) -> bytes:
 
 
 # ==============================================================================
-# 10. KIỂM TRA CẤU HÌNH SERVER (cảnh báo nếu chưa bật enableStaticServing)
+# 10. ROUTE XEM TRANG CHIA SẺ (?page=<id>)
 # ==============================================================================
-def is_static_serving_enabled() -> bool:
-    try:
-        return bool(st.config.get_option("server.enableStaticServing"))
-    except Exception:  # noqa: BLE001
-        return False
+def render_page_viewer(page_id: str):
+    """
+    Được gọi khi URL có dạng .../?page=<id>. Đọc lại file HTML đã lưu
+    trong static/pages/<id>.html và hiển thị TOÀN MÀN HÌNH, ẩn hết sidebar
+    và giao diện tạo trang của Streamlit đi — đây chính là "trang tình yêu"
+    mà người nhận link sẽ thấy.
+    """
+    file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+
+    if not os.path.exists(file_path):
+        st.error(
+            "💔 Không tìm thấy trang này. Link có thể đã sai hoặc trang đã bị xoá."
+        )
+        st.caption(f"Mã trang: `{page_id}`")
+        st.stop()
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    # Ẩn toàn bộ khung Streamlit (header, menu, padding mặc định, footer)
+    # để trang tình yêu hiển thị full màn hình, giống một trang web bình
+    # thường chứ không phải nằm lồng trong app Streamlit.
+    st.markdown(
+        """
+        <style>
+            #MainMenu {visibility: hidden;}
+            header[data-testid="stHeader"] {display: none;}
+            footer {visibility: hidden;}
+            .block-container {
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+            }
+            iframe {
+                display: block;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    components.html(html_content, height=1000, scrolling=True)
 
 
 # ==============================================================================
@@ -1707,15 +1729,6 @@ def render_result_section():
 
     st.success("✅ Thành công! Trang tình yêu của bạn đã sẵn sàng.")
 
-    if not is_static_serving_enabled():
-        st.warning(
-            "⚠️ Server hiện chưa bật `enableStaticServing`, nên link bên dưới "
-            "sẽ **không truy cập được** cho tới khi bạn khởi động lại bằng:\n\n"
-            "`streamlit run app.py --server.enableStaticServing true`\n\n"
-            "(App đã tự ghi sẵn `.streamlit/config.toml` — từ lần chạy sau chỉ "
-            "cần `streamlit run app.py` là đủ.)"
-        )
-
     st.markdown("#### 🔗 Link chia sẻ")
     st.code(result["share_url"], language="text")
     render_copy_button(result["share_url"])
@@ -1763,7 +1776,7 @@ def render_history_tab():
     for entry in reversed(entries):
         page_id = entry.get("id", "")
         created_at = entry.get("created_at", "")
-        share_url = f"{base_url}/app/static/pages/{page_id}.html"
+        share_url = f"{base_url}/?page={page_id}"
 
         with st.container(border=True):
             col1, col2 = st.columns([3, 1])
@@ -1795,6 +1808,23 @@ def render_intro():
 # 12. MAIN
 # ==============================================================================
 def main():
+    # ----------------------------------------------------------------------
+    # Kiểm tra URL có tham số ?page=<id> không (đây là link chia sẻ mà
+    # người khác mở ra). Phải đọc query params TRƯỚC set_page_config vì
+    # 2 chế độ (xem trang / tạo trang) cần layout khác nhau.
+    # ----------------------------------------------------------------------
+    shared_page_id = st.query_params.get("page")
+
+    if shared_page_id:
+        st.set_page_config(
+            page_title="💌 Trang Tình Yêu",
+            page_icon="❤️",
+            layout="wide",
+            initial_sidebar_state="collapsed",
+        )
+        render_page_viewer(shared_page_id)
+        return
+
     setup_page_config()
 
     tab_create, tab_stats = st.tabs(["💌 Tạo trang", "📊 Thống kê"])
