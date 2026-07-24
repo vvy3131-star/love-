@@ -1,0 +1,88 @@
+"""
+==============================================================================
+TRANG THỐNG KÊ (Streamlit multipage)
+------------------------------------------------------------------------------
+Trang phụ này đọc file index (static/pages/_index.json) do app.py ghi lại
+mỗi khi có một trang tình yêu mới được tạo, và hiển thị danh sách toàn bộ
+các trang đã từng được tạo trên server (không chỉ trong phiên hiện tại).
+==============================================================================
+"""
+
+import json
+import os
+
+import streamlit as st
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PAGES_DIR = os.path.join(BASE_DIR, "static", "pages")
+INDEX_JSON_PATH = os.path.join(PAGES_DIR, "_index.json")
+
+
+def load_index():
+    if not os.path.exists(INDEX_JSON_PATH):
+        return []
+    try:
+        with open(INDEX_JSON_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def get_base_url() -> str:
+    try:
+        custom_url = st.secrets.get("PUBLIC_BASE_URL", "")
+        if custom_url:
+            return custom_url.rstrip("/")
+    except Exception:  # noqa: BLE001
+        pass
+
+    env_url = os.environ.get("PUBLIC_BASE_URL", "")
+    if env_url:
+        return env_url.rstrip("/")
+
+    try:
+        headers = st.context.headers  # type: ignore[attr-defined]
+        host = headers.get("Host") if headers else None
+    except Exception:  # noqa: BLE001
+        host = None
+
+    if host:
+        scheme = "https" if ("streamlit.app" in host or "onrender.com" in host) else "http"
+        return f"{scheme}://{host}"
+
+    return "http://localhost:8501"
+
+
+def main():
+    st.set_page_config(page_title="Thống kê - Love Page Generator", page_icon="📊")
+    st.title("📊 Thống kê các trang đã tạo")
+
+    entries = load_index()
+    if not entries:
+        st.info("Chưa có trang nào được tạo. Hãy quay lại trang chính để tạo trang đầu tiên!")
+        return
+
+    base_url = get_base_url()
+    st.metric("Tổng số trang đã tạo", len(entries))
+
+    st.divider()
+
+    for entry in reversed(entries):
+        page_id = entry.get("id", "")
+        created_at = entry.get("created_at", "")
+        share_url = f"{base_url}/app/static/pages/{page_id}.html"
+
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**Mã trang:** `{page_id}`")
+                st.write(f"🕒 Tạo lúc: {created_at}")
+                st.write(f"🔗 [{share_url}]({share_url})")
+            with col2:
+                file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+                exists = os.path.exists(file_path)
+                st.write("✅ Còn tồn tại" if exists else "❌ Đã bị xoá")
+
+
+if __name__ == "__main__":
+    main()
