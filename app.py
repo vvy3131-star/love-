@@ -1,15 +1,23 @@
 """
 ==============================================================================
-LOVE PAGE GENERATOR
+LOVE PAGE GENERATOR  —  PHIÊN BẢN GỘP 1 FILE DUY NHẤT (app.py)
 ------------------------------------------------------------------------------
-Ứng dụng Streamlit cho phép người dùng tạo một trang HTML "tình yêu" (love
-page) với nhạc nền tự phát, hiệu ứng trái tim bay, particle, glassmorphism...
-Sau khi tạo, ứng dụng lưu file HTML vào thư mục static/pages/ (được Streamlit
-serve công khai nhờ enableStaticServing = true trong .streamlit/config.toml)
-và trả về một link chia sẻ dạng:
+Toàn bộ CSS, JavaScript và template HTML của "trang tình yêu" được nhúng
+thẳng vào file Python này dưới dạng chuỗi (không cần thư mục templates/
+hay static/css, static/js nữa). Chỉ cần duy nhất file app.py này +
+requirements.txt là chạy được.
 
-    http://localhost:8501/app/static/pages/<page_id>.html      (chạy local)
-    https://<domain-that-is-hosting-app>/app/static/pages/<page_id>.html (deploy)
+Cách chạy:
+    pip install -r requirements.txt
+    streamlit run app.py --server.enableStaticServing true
+
+Vì sao cần cờ --server.enableStaticServing true:
+    Đây là tính năng chính thức của Streamlit cho phép serve file tĩnh
+    (ở đây là các trang .html đã tạo) ra ngoài qua đường dẫn
+    /app/static/... để có thể sinh link chia sẻ thật, không phải chỉ lưu
+    file cục bộ. App sẽ tự kiểm tra và cảnh báo nếu bạn quên bật cờ này,
+    đồng thời tự ghi sẵn .streamlit/config.toml để các lần chạy sau chỉ
+    cần gõ "streamlit run app.py".
 
 Tác giả: Senior Python Developer
 ==============================================================================
@@ -24,43 +32,1173 @@ import uuid
 from datetime import datetime
 
 import qrcode
-import requests
 import streamlit as st
-from jinja2 import Environment, FileSystemLoader, select_autoescape
-from PIL import Image
+import streamlit.components.v1 as components
+from jinja2 import Environment, select_autoescape
 
-# yt_dlp được dùng để TÌM video Youtube phù hợp với tên bài hát người dùng
-# nhập (chỉ lấy metadata / video id, KHÔNG tải file nhạc về).
+# yt_dlp chỉ dùng để TÌM video Youtube phù hợp với tên bài hát (lấy metadata
+# / video id), KHÔNG tải bất kỳ file nhạc nào về máy.
 import yt_dlp
 
 
 # ==============================================================================
-# 1. CẤU HÌNH ĐƯỜNG DẪN
+# 1. TÀI NGUYÊN NHÚNG SẴN: CSS + JAVASCRIPT + TEMPLATE HTML
+#    (được nhúng thẳng vào biến Python thay vì đọc từ file rời)
+# ==============================================================================
+
+CSS_CONTENT = r"""/* ==========================================================================
+   LOVE PAGE GENERATOR - MAIN STYLESHEET
+   Tác giả: Senior Python Developer
+   Mô tả: Toàn bộ hiệu ứng nền, trái tim bay, glassmorphism, animation chữ,
+          thanh điều khiển nhạc và responsive cho mọi thiết bị.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. CSS VARIABLES (được Jinja2 ghi đè giá trị màu chủ đạo lúc render)
+   -------------------------------------------------------------------------- */
+:root {
+    --primary-color: #ff4d6d;
+    --secondary-color: #ff8fa3;
+    --accent-color: #ffd6e0;
+    --glow-color: rgba(255, 77, 109, 0.75);
+    --bg-dark: #2b0a18;
+    --glass-bg: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.35);
+    --text-light: #fffafc;
+    --shadow-color: rgba(255, 77, 109, 0.45);
+    --heart-speed: 8s;
+    --transition-smooth: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* --------------------------------------------------------------------------
+   2. RESET & BASE
+   -------------------------------------------------------------------------- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow-x: hidden;
+    font-family: 'Poppins', 'Be Vietnam Pro', sans-serif;
+    background-color: var(--bg-dark);
+    color: var(--text-light);
+    scroll-behavior: smooth;
+}
+
+body {
+    position: relative;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at 50% 20%, var(--secondary-color) 0%, var(--bg-dark) 75%);
+    overflow: hidden;
+}
+
+/* Nền ảnh do người dùng upload (nếu có), phủ blur + overlay hồng lãng mạn */
+body.has-bg-image {
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+}
+
+.bg-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    backdrop-filter: blur(6px) saturate(130%);
+    -webkit-backdrop-filter: blur(6px) saturate(130%);
+    background: linear-gradient(
+        135deg,
+        rgba(255, 77, 109, 0.55) 0%,
+        rgba(43, 10, 24, 0.75) 60%,
+        rgba(255, 143, 163, 0.55) 100%
+    );
+    pointer-events: none;
+}
+
+/* Ánh sáng lung linh - lớp glow chuyển động chậm phía sau */
+.aurora-light {
+    position: fixed;
+    inset: -20%;
+    z-index: 0;
+    background:
+        radial-gradient(circle at 20% 30%, var(--glow-color) 0%, transparent 35%),
+        radial-gradient(circle at 80% 70%, var(--accent-color) 0%, transparent 40%),
+        radial-gradient(circle at 50% 90%, var(--secondary-color) 0%, transparent 45%);
+    filter: blur(60px);
+    opacity: 0.55;
+    animation: auroraMove 18s ease-in-out infinite alternate;
+    pointer-events: none;
+}
+
+@keyframes auroraMove {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(-4%, 3%) scale(1.1); }
+    100% { transform: translate(4%, -3%) scale(1.05); }
+}
+
+/* --------------------------------------------------------------------------
+   3. CANVAS PARTICLE LAYER (điều khiển bởi effects.js)
+   -------------------------------------------------------------------------- */
+#particle-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   4. TRÁI TIM BAY (Floating Hearts)
+   -------------------------------------------------------------------------- */
+#hearts-container {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.heart {
+    position: absolute;
+    bottom: -60px;
+    color: var(--primary-color);
+    opacity: 0.85;
+    will-change: transform, opacity;
+    animation-name: floatUp;
+    animation-timing-function: ease-in;
+    animation-iteration-count: 1;
+    filter: drop-shadow(0 0 6px var(--glow-color));
+}
+
+.heart svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+@keyframes floatUp {
+    0% {
+        transform: translateY(0) translateX(0) rotate(0deg) scale(0.6);
+        opacity: 0;
+    }
+    10% {
+        opacity: 1;
+    }
+    50% {
+        transform: translateY(-50vh) translateX(var(--drift, 30px)) rotate(180deg) scale(1);
+    }
+    100% {
+        transform: translateY(-110vh) translateX(calc(var(--drift, 30px) * -1)) rotate(360deg) scale(0.5);
+        opacity: 0;
+    }
+}
+
+/* Sparkle lấp lánh khi chạm / click */
+.sparkle {
+    position: fixed;
+    z-index: 5;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, var(--primary-color) 60%, transparent 100%);
+    pointer-events: none;
+    animation: sparklePop 0.9s ease-out forwards;
+}
+
+@keyframes sparklePop {
+    0% { transform: scale(0) translate(0, 0); opacity: 1; }
+    100% { transform: scale(1.6) translate(var(--sx, 20px), var(--sy, -20px)); opacity: 0; }
+}
+
+/* --------------------------------------------------------------------------
+   5. TAP-TO-START OVERLAY (do trình duyệt chặn autoplay có âm thanh)
+   -------------------------------------------------------------------------- */
+.tap-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    background: rgba(43, 10, 24, 0.92);
+    backdrop-filter: blur(10px);
+    cursor: pointer;
+    text-align: center;
+    padding: 20px;
+    transition: opacity 0.6s ease, visibility 0.6s ease;
+}
+
+.tap-overlay.hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.tap-overlay .pulse-heart {
+    font-size: 64px;
+    animation: pulseBeat 1.1s ease-in-out infinite;
+}
+
+.tap-overlay p {
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    color: var(--text-light);
+    opacity: 0.9;
+}
+
+.tap-overlay span.small {
+    font-size: 13px;
+    opacity: 0.6;
+}
+
+@keyframes pulseBeat {
+    0%, 100% { transform: scale(1); }
+    25% { transform: scale(1.25); }
+    40% { transform: scale(0.95); }
+    60% { transform: scale(1.15); }
+}
+
+/* --------------------------------------------------------------------------
+   6. KHỐI NỘI DUNG TRUNG TÂM (glassmorphism card)
+   -------------------------------------------------------------------------- */
+.center-wrapper {
+    position: relative;
+    z-index: 10;
+    width: 100%;
+    max-width: 640px;
+    padding: 24px;
+    display: flex;
+    justify-content: center;
+}
+
+.glass-card {
+    width: 100%;
+    padding: 48px 36px;
+    border-radius: 32px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    box-shadow:
+        0 8px 32px var(--shadow-color),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 22px;
+    animation: cardEntrance 1.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes cardEntrance {
+    0% { opacity: 0; transform: translateY(40px) scale(0.92); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Avatar tròn có viền glow */
+.avatar-ring {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    padding: 4px;
+    background: conic-gradient(var(--primary-color), var(--accent-color), var(--secondary-color), var(--primary-color));
+    animation: ringSpin 6s linear infinite;
+    box-shadow: 0 0 30px var(--glow-color);
+}
+
+@keyframes ringSpin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.avatar-ring img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid var(--bg-dark);
+    display: block;
+}
+
+/* Dòng chữ chính - hiệu ứng fade + scale + glow */
+.main-message {
+    font-family: 'Dancing Script', 'Playfair Display', cursive, serif;
+    font-size: clamp(28px, 6vw, 52px);
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--text-light);
+    text-shadow:
+        0 0 10px var(--glow-color),
+        0 0 24px var(--glow-color),
+        0 0 46px var(--shadow-color);
+    animation:
+        messageFadeScale 1.4s ease-out both,
+        glowPulse 2.6s ease-in-out infinite 1.4s;
+}
+
+@keyframes messageFadeScale {
+    0% { opacity: 0; transform: scale(0.7); filter: blur(6px); }
+    60% { opacity: 1; transform: scale(1.05); filter: blur(0); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes glowPulse {
+    0%, 100% {
+        text-shadow: 0 0 10px var(--glow-color), 0 0 24px var(--glow-color), 0 0 46px var(--shadow-color);
+    }
+    50% {
+        text-shadow: 0 0 18px var(--glow-color), 0 0 40px var(--glow-color), 0 0 70px var(--shadow-color);
+    }
+}
+
+.sub-text {
+    font-size: 15px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.75;
+    animation: fadeIn 1.8s ease-out 0.6s both;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 0.75; transform: translateY(0); }
+}
+
+.date-text {
+    font-size: 13px;
+    opacity: 0.55;
+    letter-spacing: 0.5px;
+    animation: fadeIn 1.8s ease-out 0.9s both;
+}
+
+/* --------------------------------------------------------------------------
+   7. THANH ĐIỀU KHIỂN NHẠC (floating music bar)
+   -------------------------------------------------------------------------- */
+.music-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    transform: translateX(-50%);
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 20px;
+    min-width: 280px;
+    max-width: 92vw;
+    border-radius: 999px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+.music-bar button.play-btn {
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: none;
+    background: var(--primary-color);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 0 14px var(--glow-color);
+    transition: var(--transition-smooth);
+}
+
+.music-bar button.play-btn:hover {
+    transform: scale(1.08);
+}
+
+.music-bar button.play-btn:active {
+    transform: scale(0.94);
+}
+
+.music-bar .track-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.music-bar .track-title {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.music-bar .track-marquee {
+    display: inline-block;
+    white-space: nowrap;
+}
+
+.music-bar .track-marquee.animate {
+    animation: marquee 9s linear infinite;
+}
+
+@keyframes marquee {
+    0%   { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.music-bar .eq-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
+}
+
+.music-bar .eq-bars span {
+    width: 3px;
+    background: var(--primary-color);
+    border-radius: 2px;
+    animation: eqBounce 0.9s ease-in-out infinite;
+}
+
+.music-bar .eq-bars span:nth-child(2) { animation-delay: 0.15s; }
+.music-bar .eq-bars span:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes eqBounce {
+    0%, 100% { height: 4px; }
+    50% { height: 14px; }
+}
+
+.music-bar .volume-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.music-bar input[type="range"] {
+    -webkit-appearance: none;
+    width: 70px;
+    height: 4px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.35);
+    outline: none;
+}
+
+.music-bar input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-light);
+    cursor: pointer;
+    box-shadow: 0 0 6px var(--glow-color);
+}
+
+/* --------------------------------------------------------------------------
+   8. FOOTER / CHỮ KÝ
+   -------------------------------------------------------------------------- */
+.signature-footer {
+    position: fixed;
+    bottom: 6px;
+    right: 12px;
+    z-index: 30;
+    font-size: 11px;
+    opacity: 0.45;
+    letter-spacing: 0.5px;
+}
+
+/* --------------------------------------------------------------------------
+   9. RESPONSIVE - ĐIỆN THOẠI / TABLET / DESKTOP
+   -------------------------------------------------------------------------- */
+
+/* Điện thoại nhỏ */
+@media (max-width: 480px) {
+    .glass-card {
+        padding: 34px 20px;
+        border-radius: 24px;
+        gap: 16px;
+    }
+    .avatar-ring {
+        width: 90px;
+        height: 90px;
+    }
+    .main-message {
+        font-size: clamp(24px, 8vw, 36px);
+    }
+    .music-bar {
+        min-width: unset;
+        width: 90vw;
+        padding: 10px 16px;
+        bottom: 14px;
+    }
+    .tap-overlay .pulse-heart {
+        font-size: 48px;
+    }
+}
+
+/* Tablet */
+@media (min-width: 481px) and (max-width: 900px) {
+    .glass-card {
+        padding: 42px 30px;
+    }
+    .avatar-ring {
+        width: 105px;
+        height: 105px;
+    }
+}
+
+/* Desktop lớn */
+@media (min-width: 1400px) {
+    .center-wrapper {
+        max-width: 760px;
+    }
+    .main-message {
+        font-size: clamp(36px, 5vw, 64px);
+    }
+}
+
+/* Màn hình thấp (landscape trên điện thoại) */
+@media (max-height: 480px) and (orientation: landscape) {
+    .glass-card {
+        padding: 20px 26px;
+        gap: 10px;
+    }
+    .avatar-ring {
+        width: 64px;
+        height: 64px;
+    }
+    .music-bar {
+        bottom: 8px;
+    }
+}
+
+/* Giảm hiệu ứng cho người dùng yêu cầu giảm chuyển động */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* --------------------------------------------------------------------------
+   10. SCROLLBAR TÙY CHỈNH (đồng bộ theme hồng)
+   -------------------------------------------------------------------------- */
+::-webkit-scrollbar {
+    width: 8px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: var(--primary-color);
+    border-radius: 8px;
+}
+"""
+
+JS_CONTENT = r"""/* ==========================================================================
+   LOVE PAGE GENERATOR - CLIENT SIDE EFFECTS
+   File này chạy trong trang HTML đã tạo (được nhúng trực tiếp vào <script>).
+   Toàn bộ config (số lượng tim, tốc độ, youtube id...) được đọc từ
+   thuộc tính data-* gắn trên thẻ <body> do Jinja2 render ra.
+   ========================================================================== */
+
+(function () {
+    "use strict";
+
+    /* ----------------------------------------------------------------------
+       0. ĐỌC CẤU HÌNH TỪ BODY DATA ATTRIBUTES
+       ---------------------------------------------------------------------- */
+    var body = document.body;
+    var CONFIG = {
+        heartCount: parseInt(body.getAttribute("data-heart-count") || "25", 10),
+        heartSpeed: parseFloat(body.getAttribute("data-heart-speed") || "8"),
+        youtubeId: body.getAttribute("data-youtube-id") || "",
+        songTitle: body.getAttribute("data-song-title") || "",
+        primaryColor: body.getAttribute("data-primary-color") || "#ff4d6d",
+        message: body.getAttribute("data-message") || ""
+    };
+
+    /* ----------------------------------------------------------------------
+       1. HÀM TIỆN ÍCH NGẪU NHIÊN
+       ---------------------------------------------------------------------- */
+    function rand(min, max) {
+        return Math.random() * (max - min) + min;
+    }
+
+    function pick(arr) {
+        return arr[Math.floor(Math.random() * arr.length)];
+    }
+
+    /* ----------------------------------------------------------------------
+       2. CANVAS PARTICLE ENGINE (ánh sáng lung linh bay nhẹ nhàng)
+       ---------------------------------------------------------------------- */
+    function ParticleEngine(canvasId) {
+        this.canvas = document.getElementById(canvasId);
+        if (!this.canvas) return;
+        this.ctx = this.canvas.getContext("2d");
+        this.particles = [];
+        this.count = 70;
+        this.resize();
+        this.init();
+        window.addEventListener("resize", this.resize.bind(this));
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+    }
+
+    ParticleEngine.prototype.resize = function () {
+        this.canvas.width = window.innerWidth;
+        this.canvas.height = window.innerHeight;
+    };
+
+    ParticleEngine.prototype.init = function () {
+        this.particles = [];
+        for (var i = 0; i < this.count; i++) {
+            this.particles.push({
+                x: rand(0, window.innerWidth),
+                y: rand(0, window.innerHeight),
+                r: rand(0.6, 2.6),
+                vx: rand(-0.15, 0.15),
+                vy: rand(-0.25, -0.05),
+                alpha: rand(0.15, 0.85),
+                twinkleSpeed: rand(0.005, 0.02),
+                twinkleDir: pick([1, -1])
+            });
+        }
+    };
+
+    ParticleEngine.prototype.loop = function () {
+        if (!this.ctx) return;
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+        for (var i = 0; i < this.particles.length; i++) {
+            var p = this.particles[i];
+            p.x += p.vx;
+            p.y += p.vy;
+            p.alpha += p.twinkleSpeed * p.twinkleDir;
+
+            if (p.alpha <= 0.1 || p.alpha >= 0.95) {
+                p.twinkleDir *= -1;
+            }
+            if (p.y < -10) {
+                p.y = window.innerHeight + 10;
+                p.x = rand(0, window.innerWidth);
+            }
+            if (p.x < -10) p.x = window.innerWidth + 10;
+            if (p.x > window.innerWidth + 10) p.x = -10;
+
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            this.ctx.fillStyle = "rgba(255,255,255," + p.alpha.toFixed(2) + ")";
+            this.ctx.shadowBlur = 6;
+            this.ctx.shadowColor = CONFIG.primaryColor;
+            this.ctx.fill();
+        }
+        requestAnimationFrame(this.loop);
+    };
+
+    /* ----------------------------------------------------------------------
+       3. TRÁI TIM BAY LIÊN TỤC (Floating Hearts)
+       ---------------------------------------------------------------------- */
+    var HEART_SVG =
+        '<svg viewBox="0 0 32 29" xmlns="http://www.w3.org/2000/svg">' +
+        '<path fill="currentColor" d="M23.6 0c-3 0-5.9 1.6-7.6 4.3C14.3 1.6 11.4 0 8.4 0 3.8 0 0 3.8 0 8.4c0 8.4 12 17.3 15.2 19.6.5.4 1.1.4 1.6 0C20 25.7 32 16.8 32 8.4 32 3.8 28.2 0 23.6 0z"/>' +
+        "</svg>";
+
+    function createHeart(container) {
+        var heart = document.createElement("div");
+        heart.className = "heart";
+
+        var size = rand(14, 34);
+        var left = rand(0, 100);
+        var drift = rand(-60, 60);
+        var duration = rand(CONFIG.heartSpeed * 0.7, CONFIG.heartSpeed * 1.3);
+        var delay = rand(0, 2);
+
+        heart.style.left = left + "vw";
+        heart.style.width = size + "px";
+        heart.style.height = size + "px";
+        heart.style.setProperty("--drift", drift + "px");
+        heart.style.animationDuration = duration + "s";
+        heart.style.animationDelay = delay + "s";
+        heart.innerHTML = HEART_SVG;
+
+        // Đôi khi đổi màu tim cho sinh động
+        if (Math.random() > 0.6) {
+            heart.style.color = pick(["#ff8fa3", "#ffd6e0", "#ff4d6d", "#ffffff"]);
+        }
+
+        container.appendChild(heart);
+
+        window.setTimeout(function () {
+            if (heart.parentNode) heart.parentNode.removeChild(heart);
+        }, (duration + delay) * 1000 + 500);
+    }
+
+    function startFloatingHearts() {
+        var container = document.getElementById("hearts-container");
+        if (!container) return;
+
+        // Tạo lượt tim ban đầu
+        for (var i = 0; i < CONFIG.heartCount; i++) {
+            window.setTimeout(function () {
+                createHeart(container);
+            }, rand(0, 4000));
+        }
+
+        // Sinh tim liên tục theo chu kỳ
+        var intervalMs = Math.max(250, 6000 / Math.max(CONFIG.heartCount, 1));
+        window.setInterval(function () {
+            createHeart(container);
+        }, intervalMs);
+    }
+
+    /* ----------------------------------------------------------------------
+       4. SPARKLE LẤP LÁNH KHI CHẠM / CLICK MÀN HÌNH
+       ---------------------------------------------------------------------- */
+    function spawnSparkle(x, y) {
+        var s = document.createElement("div");
+        s.className = "sparkle";
+        s.style.left = x + "px";
+        s.style.top = y + "px";
+        s.style.setProperty("--sx", rand(-30, 30) + "px");
+        s.style.setProperty("--sy", rand(-40, -10) + "px");
+        document.body.appendChild(s);
+        window.setTimeout(function () {
+            if (s.parentNode) s.parentNode.removeChild(s);
+        }, 950);
+    }
+
+    function bindSparkleEvents() {
+        document.addEventListener("click", function (e) {
+            for (var i = 0; i < 3; i++) {
+                spawnSparkle(e.clientX + rand(-8, 8), e.clientY + rand(-8, 8));
+            }
+        });
+        document.addEventListener(
+            "touchstart",
+            function (e) {
+                var t = e.touches[0];
+                if (!t) return;
+                for (var i = 0; i < 3; i++) {
+                    spawnSparkle(t.clientX + rand(-8, 8), t.clientY + rand(-8, 8));
+                }
+            },
+            { passive: true }
+        );
+    }
+
+    /* ----------------------------------------------------------------------
+       5. HIỆU ỨNG GÕ CHỮ (Typewriter) CHO DÒNG CHỮ CHÍNH - tuỳ chọn
+       ---------------------------------------------------------------------- */
+    function typewriterEffect(el, text, speed) {
+        if (!el || !text) return;
+        el.textContent = "";
+        var i = 0;
+        function typeNext() {
+            if (i <= text.length) {
+                el.textContent = text.slice(0, i);
+                i++;
+                window.setTimeout(typeNext, speed);
+            } else {
+                el.classList.add("typing-done");
+            }
+        }
+        typeNext();
+    }
+
+    /* ----------------------------------------------------------------------
+       6. ĐIỀU KHIỂN NHẠC QUA YOUTUBE IFRAME API
+       ---------------------------------------------------------------------- */
+    var ytPlayer = null;
+    var isPlaying = false;
+
+    function loadYouTubeAPI(callback) {
+        if (window.YT && window.YT.Player) {
+            callback();
+            return;
+        }
+        var tag = document.createElement("script");
+        tag.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(tag);
+        window.onYouTubeIframeAPIReady = callback;
+    }
+
+    function initYouTubePlayer() {
+        if (!CONFIG.youtubeId) return;
+
+        loadYouTubeAPI(function () {
+            ytPlayer = new YT.Player("yt-player", {
+                height: "0",
+                width: "0",
+                videoId: CONFIG.youtubeId,
+                playerVars: {
+                    autoplay: 1,
+                    controls: 0,
+                    loop: 1,
+                    playlist: CONFIG.youtubeId,
+                    playsinline: 1
+                },
+                events: {
+                    onReady: function (e) {
+                        e.target.setVolume(70);
+                        tryAutoPlay(e.target);
+                    },
+                    onStateChange: function (e) {
+                        isPlaying = e.data === YT.PlayerState.PLAYING;
+                        updatePlayButton();
+                    }
+                }
+            });
+        });
+    }
+
+    function tryAutoPlay(player) {
+        try {
+            player.playVideo();
+        } catch (err) {
+            console.warn("Autoplay bị chặn, chờ người dùng tương tác:", err);
+        }
+    }
+
+    function updatePlayButton() {
+        var btn = document.getElementById("play-pause-btn");
+        if (!btn) return;
+        btn.innerHTML = isPlaying ? ICON_PAUSE : ICON_PLAY;
+    }
+
+    var ICON_PLAY =
+        '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>';
+    var ICON_PAUSE =
+        '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>';
+
+    function bindMusicControls() {
+        var playBtn = document.getElementById("play-pause-btn");
+        var volumeSlider = document.getElementById("volume-slider");
+
+        if (playBtn) {
+            playBtn.innerHTML = ICON_PLAY;
+            playBtn.addEventListener("click", function () {
+                if (!ytPlayer) return;
+                if (isPlaying) {
+                    ytPlayer.pauseVideo();
+                } else {
+                    ytPlayer.playVideo();
+                }
+            });
+        }
+
+        if (volumeSlider) {
+            volumeSlider.addEventListener("input", function (e) {
+                if (ytPlayer && ytPlayer.setVolume) {
+                    ytPlayer.setVolume(parseInt(e.target.value, 10));
+                }
+            });
+        }
+    }
+
+    /* ----------------------------------------------------------------------
+       7. OVERLAY "CHẠM ĐỂ BẮT ĐẦU" - xử lý chính sách chặn autoplay có âm thanh
+       ---------------------------------------------------------------------- */
+    function bindTapOverlay() {
+        var overlay = document.getElementById("tap-overlay");
+        if (!overlay) return;
+
+        function dismiss() {
+            overlay.classList.add("hidden");
+            if (ytPlayer && ytPlayer.playVideo) {
+                ytPlayer.playVideo();
+            }
+            document.removeEventListener("click", dismiss);
+            document.removeEventListener("touchstart", dismiss);
+        }
+
+        overlay.addEventListener("click", dismiss);
+
+        // Nếu nhạc tự phát thành công thì tự ẩn overlay sau 1.2s
+        window.setTimeout(function () {
+            if (isPlaying) {
+                overlay.classList.add("hidden");
+            }
+        }, 1200);
+    }
+
+    /* ----------------------------------------------------------------------
+       8. MARQUEE TÊN BÀI HÁT NẾU QUÁ DÀI
+       ---------------------------------------------------------------------- */
+    function setupMarquee() {
+        var title = document.querySelector(".track-title");
+        if (!title || !CONFIG.songTitle) return;
+        title.textContent = CONFIG.songTitle;
+        if (CONFIG.songTitle.length > 22) {
+            var marqueeInner = document.createElement("span");
+            marqueeInner.className = "track-marquee animate";
+            marqueeInner.textContent = CONFIG.songTitle + "   •   " + CONFIG.songTitle;
+            title.innerHTML = "";
+            title.appendChild(marqueeInner);
+        }
+    }
+
+    /* ----------------------------------------------------------------------
+       9. KHỞI TẠO TOÀN BỘ KHI TRANG SẴN SÀNG
+       ---------------------------------------------------------------------- */
+    function init() {
+        new ParticleEngine("particle-canvas");
+        startFloatingHearts();
+        bindSparkleEvents();
+        setupMarquee();
+        bindMusicControls();
+        bindTapOverlay();
+
+        if (CONFIG.youtubeId) {
+            initYouTubePlayer();
+        } else {
+            // Không có nhạc -> ẩn luôn thanh điều khiển nhạc
+            var bar = document.querySelector(".music-bar");
+            if (bar) bar.style.display = "none";
+            var overlay = document.getElementById("tap-overlay");
+            if (overlay) overlay.classList.add("hidden");
+        }
+
+        // Hiệu ứng chữ lấp lánh nhẹ định kỳ (glow đã xử lý ở CSS,
+        // đây chỉ là bổ sung random spark quanh chữ)
+        var messageEl = document.querySelector(".main-message");
+        if (messageEl) {
+            window.setInterval(function () {
+                var rect = messageEl.getBoundingClientRect();
+                spawnSparkle(
+                    rect.left + rand(0, rect.width),
+                    rect.top + rand(0, rect.height)
+                );
+            }, 1800);
+        }
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+})();
+"""
+
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<!--
+    ==========================================================================
+    LOVE PAGE GENERATOR - TEMPLATE TRANG TÌNH YÊU
+    Template này được render bởi Jinja2 trong app.py.
+    Toàn bộ CSS và JS được nhúng thẳng vào file (inline) để trang HTML
+    xuất ra là MỘT FILE DUY NHẤT, độc lập, có thể chia sẻ mà không phụ
+    thuộc vào file tĩnh nào khác.
+    ==========================================================================
+-->
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="{{ primary_color }}" />
+
+    <!-- SEO / chia sẻ mạng xã hội -->
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ message }}" />
+    <meta property="og:title" content="{{ title }}" />
+    <meta property="og:description" content="{{ message }}" />
+    <meta property="og:type" content="website" />
+    {% if bg_image_data %}
+    <meta property="og:image" content="{{ bg_image_data }}" />
+    {% endif %}
+
+    <!-- Google Fonts: chữ viết tay lãng mạn + font chính -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Playfair+Display:ital,wght@1,600&family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet"
+    />
+
+    <!-- Favicon trái tim (emoji data-uri, không cần file ngoài) -->
+    <link
+        rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>"
+    />
+
+    <style>
+        /* ================= CSS ĐƯỢC NHÚNG TỪ static/css/style.css ================= */
+        {{ css_content|safe }}
+
+        /* ================= GHI ĐÈ BIẾN MÀU THEO NGƯỜI DÙNG CHỌN ================= */
+        :root {
+            --primary-color: {{ primary_color }};
+            --secondary-color: {{ secondary_color }};
+            --accent-color: {{ accent_color }};
+            --glow-color: {{ glow_color }};
+            --heart-speed: {{ heart_speed }}s;
+        }
+
+        {% if bg_image_data %}
+        body {
+            background-image: url('{{ bg_image_data }}');
+        }
+        {% endif %}
+    </style>
+</head>
+<body
+    class="{% if bg_image_data %}has-bg-image{% endif %}"
+    data-heart-count="{{ heart_count }}"
+    data-heart-speed="{{ heart_speed }}"
+    data-youtube-id="{{ youtube_id }}"
+    data-song-title="{{ song_title }}"
+    data-primary-color="{{ primary_color }}"
+    data-message="{{ message }}"
+>
+
+    <!-- ====================================================================
+         LỚP NỀN: overlay hồng blur + ánh sáng lung linh (aurora)
+         ==================================================================== -->
+    <div class="bg-overlay"></div>
+    <div class="aurora-light"></div>
+
+    <!-- ====================================================================
+         LỚP PARTICLE (canvas) - vẽ bằng JS
+         ==================================================================== -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- ====================================================================
+         LỚP TRÁI TIM BAY LIÊN TỤC
+         ==================================================================== -->
+    <div id="hearts-container"></div>
+
+    <!-- ====================================================================
+         OVERLAY "CHẠM ĐỂ BẮT ĐẦU" (xử lý autoplay bị trình duyệt chặn)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="tap-overlay" id="tap-overlay">
+        <div class="pulse-heart">❤️</div>
+        <p>Chạm vào màn hình để bắt đầu</p>
+        <span class="small">{{ song_title }}</span>
+    </div>
+    {% endif %}
+
+    <!-- ====================================================================
+         NỘI DUNG TRUNG TÂM: avatar + dòng chữ + ngày tháng
+         ==================================================================== -->
+    <div class="center-wrapper">
+        <div class="glass-card">
+
+            {% if avatar_data %}
+            <div class="avatar-ring">
+                <img src="{{ avatar_data }}" alt="avatar" />
+            </div>
+            {% endif %}
+
+            <div class="main-message">{{ message }}</div>
+
+            <div class="sub-text">Được gửi bằng tất cả yêu thương</div>
+
+            {% if generated_date %}
+            <div class="date-text">{{ generated_date }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         THANH ĐIỀU KHIỂN NHẠC (chỉ hiện nếu có bài hát)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="music-bar">
+        <button id="play-pause-btn" class="play-btn" aria-label="Play/Pause"></button>
+
+        <div class="track-info">
+            <span class="track-title">{{ song_title }}</span>
+        </div>
+
+        <div class="eq-bars">
+            <span></span><span></span><span></span>
+        </div>
+
+        <div class="volume-wrap">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+                <path
+                    fill="currentColor"
+                    d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-.77-3.29-2-4.2v8.4c1.23-.91 2-2.43 2-4.2z"
+                />
+            </svg>
+            <input type="range" id="volume-slider" min="0" max="100" value="70" />
+        </div>
+    </div>
+
+    <!-- Div ẩn chứa YouTube player (âm thanh, không hiện khung hình) -->
+    <div id="yt-player" style="position:fixed; bottom:-200px; left:-200px; width:1px; height:1px; opacity:0;"></div>
+    {% endif %}
+
+    <!-- ====================================================================
+         CHỮ KÝ CUỐI TRANG
+         ==================================================================== -->
+    <div class="signature-footer">💌 made with Love Page Generator</div>
+
+    <!-- ====================================================================
+         SCRIPT: nhúng toàn bộ static/js/effects.js
+         ==================================================================== -->
+    <script>
+        {{ js_content|safe }}
+    </script>
+</body>
+</html>
+"""
+
+
+# ==============================================================================
+# 2. CẤU HÌNH ĐƯỜNG DẪN & TỰ ĐỘNG GHI .streamlit/config.toml
 # ==============================================================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-CSS_PATH = os.path.join(STATIC_DIR, "css", "style.css")
-JS_PATH = os.path.join(STATIC_DIR, "js", "effects.js")
-PAGES_DIR = os.path.join(STATIC_DIR, "pages")
+STREAMLIT_DIR = os.path.join(BASE_DIR, ".streamlit")
+CONFIG_TOML_PATH = os.path.join(STREAMLIT_DIR, "config.toml")
+PAGES_DIR = os.path.join(BASE_DIR, "static", "pages")
 INDEX_JSON_PATH = os.path.join(PAGES_DIR, "_index.json")
 
-# Đảm bảo thư mục lưu trang đã tạo luôn tồn tại
+# Đảm bảo các thư mục cần thiết luôn tồn tại (chỉ còn duy nhất thư mục lưu
+# trang đã tạo, vì CSS/JS/HTML template giờ đã nằm trong chính file này).
 os.makedirs(PAGES_DIR, exist_ok=True)
 
-MAX_IMAGE_DIMENSION = 1600      # giới hạn chiều dài cạnh lớn nhất của ảnh nền
-MAX_AVATAR_DIMENSION = 500      # giới hạn cho avatar
-JPEG_QUALITY = 82               # chất lượng nén ảnh khi convert sang JPEG
+MAX_IMAGE_DIMENSION = 1600      # giới hạn cạnh lớn nhất của ảnh nền
+MAX_AVATAR_DIMENSION = 500      # giới hạn cạnh lớn nhất của avatar
+JPEG_QUALITY = 82                # chất lượng nén ảnh khi convert sang JPEG
 
 
-# ==============================================================================
-# 2. HÀM ĐỌC FILE TĨNH (CÓ CACHE ĐỂ TĂNG TỐC)
-# ==============================================================================
-@st.cache_data(show_spinner=False)
-def load_text_file(path: str) -> str:
-    """Đọc nội dung file text (CSS/JS) và cache lại để không đọc lại mỗi lần."""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+def ensure_static_serving_config():
+    """
+    Tự động ghi file .streamlit/config.toml (nếu chưa có) để bật
+    enableStaticServing = true. Nhờ vậy, từ lần chạy thứ 2 trở đi, người
+    dùng chỉ cần gõ "streamlit run app.py" mà không cần thêm cờ dòng lệnh.
+    """
+    if os.path.exists(CONFIG_TOML_PATH):
+        return
+
+    os.makedirs(STREAMLIT_DIR, exist_ok=True)
+    config_content = (
+        "[server]\n"
+        "enableStaticServing = true\n"
+        "maxUploadSize = 15\n"
+        "\n"
+        "[browser]\n"
+        "gatherUsageStats = false\n"
+    )
+    try:
+        with open(CONFIG_TOML_PATH, "w", encoding="utf-8") as f:
+            f.write(config_content)
+    except Exception:  # noqa: BLE001 - không ghi được cũng không sao, chỉ là tiện ích
+        pass
+
+
+ensure_static_serving_config()
 
 
 # ==============================================================================
@@ -135,14 +1273,12 @@ def search_youtube_by_song_name(song_name: str):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             result = ydl.extract_info(song_name, download=False)
 
-            # Khi search, kết quả thường nằm trong result["entries"]
             if result and "entries" in result and len(result["entries"]) > 0:
                 entry = result["entries"][0]
                 video_id = entry.get("id")
                 title = entry.get("title", song_name)
                 return video_id, title
 
-            # Trường hợp result trả về trực tiếp 1 video (hiếm khi xảy ra với search)
             if result and result.get("id"):
                 return result.get("id"), result.get("title", song_name)
 
@@ -173,7 +1309,7 @@ def resolve_youtube_id(song_name: str, youtube_link: str):
 
 
 # ==============================================================================
-# 5. XỬ LÝ ẢNH UPLOAD (nén + chuyển sang base64 data URI để nhúng thẳng vào HTML)
+# 5. XỬ LÝ ẢNH UPLOAD (nén + chuyển sang base64 data URI để nhúng vào HTML)
 # ==============================================================================
 def uploaded_image_to_data_uri(uploaded_file, max_dimension: int) -> str:
     """
@@ -185,9 +1321,10 @@ def uploaded_image_to_data_uri(uploaded_file, max_dimension: int) -> str:
         return ""
 
     try:
+        from PIL import Image
+
         image = Image.open(uploaded_file)
 
-        # Chuyển ảnh có kênh alpha (PNG) sang nền trắng khi nén JPEG
         if image.mode in ("RGBA", "P"):
             background = Image.new("RGB", image.size, (255, 255, 255))
             background.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
@@ -195,7 +1332,6 @@ def uploaded_image_to_data_uri(uploaded_file, max_dimension: int) -> str:
         else:
             image = image.convert("RGB")
 
-        # Resize nếu ảnh quá lớn (giữ tỉ lệ)
         image.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
 
         buffer = io.BytesIO()
@@ -209,15 +1345,8 @@ def uploaded_image_to_data_uri(uploaded_file, max_dimension: int) -> str:
 
 
 # ==============================================================================
-# 6. RENDER TRANG HTML BẰNG JINJA2
+# 6. RENDER TRANG HTML BẰNG JINJA2 (render thẳng từ chuỗi HTML_TEMPLATE)
 # ==============================================================================
-def get_jinja_env() -> Environment:
-    return Environment(
-        loader=FileSystemLoader(TEMPLATE_DIR),
-        autoescape=select_autoescape(disabled_extensions=("html",), default=False),
-    )
-
-
 def render_love_page(
     message: str,
     primary_color: str,
@@ -230,11 +1359,8 @@ def render_love_page(
 ) -> str:
     """Render toàn bộ file HTML hoàn chỉnh (đã nhúng sẵn CSS + JS)."""
 
-    env = get_jinja_env()
-    template = env.get_template("page.html")
-
-    css_content = load_text_file(CSS_PATH)
-    js_content = load_text_file(JS_PATH)
+    env = Environment(autoescape=select_autoescape(disabled_extensions=("html",), default=False))
+    template = env.from_string(HTML_TEMPLATE)
 
     secondary_color = adjust_color(primary_color, 40)
     accent_color = adjust_color(primary_color, 90)
@@ -254,8 +1380,8 @@ def render_love_page(
         heart_count=heart_count,
         heart_speed=heart_speed,
         generated_date=datetime.now().strftime("%d/%m/%Y"),
-        css_content=css_content,
-        js_content=js_content,
+        css_content=CSS_CONTENT,
+        js_content=JS_CONTENT,
     )
     return html_output
 
@@ -276,7 +1402,7 @@ def save_generated_page(html_content: str) -> str:
 
 
 def _append_to_index(page_id: str):
-    """Ghi lại lịch sử các trang đã tạo (phục vụ thống kê / quản lý)."""
+    """Ghi lại lịch sử các trang đã tạo (phục vụ tab Thống kê)."""
     index_data = []
     if os.path.exists(INDEX_JSON_PATH):
         try:
@@ -296,30 +1422,38 @@ def _append_to_index(page_id: str):
         json.dump(index_data, f, ensure_ascii=False, indent=2)
 
 
+def load_index():
+    if not os.path.exists(INDEX_JSON_PATH):
+        return []
+    try:
+        with open(INDEX_JSON_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 # ==============================================================================
 # 8. XÁC ĐỊNH DOMAIN HIỆN TẠI ĐỂ SINH LINK CHIA SẺ
 # ==============================================================================
 def get_base_url() -> str:
     """
     Tự động nhận diện domain đang chạy ứng dụng để sinh link chia sẻ đúng:
-      - Nếu có biến môi trường / secrets PUBLIC_BASE_URL -> ưu tiên dùng (khi
-        bạn deploy sau một domain riêng, ví dụ domain.com).
-      - Nếu chạy trên Streamlit Cloud / Render -> tự lấy Host từ request header.
+      - Nếu có biến môi trường / secrets PUBLIC_BASE_URL -> ưu tiên dùng
+        (khi bạn deploy sau một domain riêng, ví dụ domain.com).
+      - Nếu chạy trên Streamlit Cloud / Render -> tự lấy Host từ header.
       - Nếu chạy local -> mặc định http://localhost:8501
     """
-    # 1) Cho phép override thủ công qua secrets.toml hoặc biến môi trường
     try:
         custom_url = st.secrets.get("PUBLIC_BASE_URL", "")
         if custom_url:
             return custom_url.rstrip("/")
-    except Exception:  # noqa: BLE001 - không có secrets.toml cũng không sao
+    except Exception:  # noqa: BLE001
         pass
 
     env_url = os.environ.get("PUBLIC_BASE_URL", "")
     if env_url:
         return env_url.rstrip("/")
 
-    # 2) Cố gắng đọc Host header từ request hiện tại (Streamlit >= 1.37)
     host = None
     try:
         headers = st.context.headers  # type: ignore[attr-defined]
@@ -338,7 +1472,6 @@ def get_base_url() -> str:
         scheme = "https" if is_https else "http"
         return f"{scheme}://{host}"
 
-    # 3) Mặc định khi chạy local
     return "http://localhost:8501"
 
 
@@ -367,7 +1500,17 @@ def generate_qr_code_bytes(url: str) -> bytes:
 
 
 # ==============================================================================
-# 10. GIAO DIỆN STREAMLIT
+# 10. KIỂM TRA CẤU HÌNH SERVER (cảnh báo nếu chưa bật enableStaticServing)
+# ==============================================================================
+def is_static_serving_enabled() -> bool:
+    try:
+        return bool(st.config.get_option("server.enableStaticServing"))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+# ==============================================================================
+# 11. GIAO DIỆN STREAMLIT
 # ==============================================================================
 def setup_page_config():
     st.set_page_config(
@@ -468,7 +1611,6 @@ def handle_generation(inputs: dict):
     progress_bar = st.progress(0, text="🚀 Bắt đầu tạo trang...")
 
     try:
-        # Bước 1: xác định video Youtube (nếu có)
         progress_bar.progress(15, text="🎵 Đang tìm bài hát trên YouTube...")
         youtube_id, song_title = resolve_youtube_id(
             inputs["song_name"], inputs["youtube_link"]
@@ -478,7 +1620,6 @@ def handle_generation(inputs: dict):
                 "⚠️ Không tìm thấy bài hát trên YouTube, trang sẽ được tạo mà không có nhạc nền."
             )
 
-        # Bước 2: xử lý ảnh nền / avatar
         progress_bar.progress(40, text="🖼️ Đang xử lý hình ảnh...")
         bg_image_data = uploaded_image_to_data_uri(
             inputs["bg_image_file"], MAX_IMAGE_DIMENSION
@@ -487,7 +1628,6 @@ def handle_generation(inputs: dict):
             inputs["avatar_file"], MAX_AVATAR_DIMENSION
         )
 
-        # Bước 3: render HTML
         progress_bar.progress(65, text="🧩 Đang dựng giao diện trang tình yêu...")
         html_content = render_love_page(
             message=inputs["message"].strip(),
@@ -500,18 +1640,15 @@ def handle_generation(inputs: dict):
             heart_speed=inputs["heart_speed"],
         )
 
-        # Bước 4: lưu file + sinh link chia sẻ
         progress_bar.progress(85, text="💾 Đang lưu trang lên server...")
         page_id = save_generated_page(html_content)
         share_url = build_share_url(page_id)
 
-        # Bước 5: sinh QR code
         progress_bar.progress(97, text="📱 Đang tạo mã QR...")
         qr_bytes = generate_qr_code_bytes(share_url)
 
         progress_bar.progress(100, text="✅ Hoàn tất!")
 
-        # Lưu kết quả + lịch sử vào session_state để hiển thị sau khi rerun
         result = {
             "page_id": page_id,
             "share_url": share_url,
@@ -532,8 +1669,6 @@ def handle_generation(inputs: dict):
 
 def render_copy_button(url: str):
     """Nút Copy Link dùng JS clipboard API, nhúng qua components.html."""
-    import streamlit.components.v1 as components
-
     safe_url = json.dumps(url)  # escape an toàn để nhúng vào JS string
     components.html(
         f"""
@@ -572,6 +1707,15 @@ def render_result_section():
 
     st.success("✅ Thành công! Trang tình yêu của bạn đã sẵn sàng.")
 
+    if not is_static_serving_enabled():
+        st.warning(
+            "⚠️ Server hiện chưa bật `enableStaticServing`, nên link bên dưới "
+            "sẽ **không truy cập được** cho tới khi bạn khởi động lại bằng:\n\n"
+            "`streamlit run app.py --server.enableStaticServing true`\n\n"
+            "(App đã tự ghi sẵn `.streamlit/config.toml` — từ lần chạy sau chỉ "
+            "cần `streamlit run app.py` là đủ.)"
+        )
+
     st.markdown("#### 🔗 Link chia sẻ")
     st.code(result["share_url"], language="text")
     render_copy_button(result["share_url"])
@@ -596,8 +1740,6 @@ def render_result_section():
         st.write(f"**Có nhạc nền:** {'Có 🎵' if result['has_music'] else 'Không'}")
 
     with st.expander("👀 Xem trước trang tình yêu"):
-        import streamlit.components.v1 as components
-
         page_path = os.path.join(PAGES_DIR, f"{result['page_id']}.html")
         if os.path.exists(page_path):
             with open(page_path, "r", encoding="utf-8") as f:
@@ -607,18 +1749,32 @@ def render_result_section():
             st.info("Không tìm thấy file xem trước.")
 
 
-def render_history_section():
-    """Hiển thị danh sách các trang đã tạo trong phiên làm việc hiện tại."""
-    history = st.session_state.get("history", [])
-    if not history or len(history) <= 1:
+def render_history_tab():
+    """Tab '📊 Thống kê': liệt kê toàn bộ trang đã từng tạo trên server."""
+    entries = load_index()
+    if not entries:
+        st.info("Chưa có trang nào được tạo. Hãy sang tab 'Tạo trang' để bắt đầu!")
         return
 
-    with st.expander(f"📜 Lịch sử đã tạo trong phiên này ({len(history)} trang)"):
-        for item in history:
-            st.write(
-                f"💗 `{item['page_id']}` — {item['created_at']} — "
-                f"[{item['share_url']}]({item['share_url']})"
-            )
+    base_url = get_base_url()
+    st.metric("Tổng số trang đã tạo", len(entries))
+    st.divider()
+
+    for entry in reversed(entries):
+        page_id = entry.get("id", "")
+        created_at = entry.get("created_at", "")
+        share_url = f"{base_url}/app/static/pages/{page_id}.html"
+
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**Mã trang:** `{page_id}`")
+                st.write(f"🕒 Tạo lúc: {created_at}")
+                st.write(f"🔗 [{share_url}]({share_url})")
+            with col2:
+                file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+                exists = os.path.exists(file_path)
+                st.write("✅ Còn tồn tại" if exists else "❌ Đã bị xoá")
 
 
 def render_intro():
@@ -636,23 +1792,28 @@ def render_intro():
 
 
 # ==============================================================================
-# 11. MAIN
+# 12. MAIN
 # ==============================================================================
 def main():
     setup_page_config()
-    render_intro()
 
-    inputs = render_sidebar()
+    tab_create, tab_stats = st.tabs(["💌 Tạo trang", "📊 Thống kê"])
 
-    if inputs["submitted"]:
-        handle_generation(inputs)
+    with tab_create:
+        render_intro()
+        inputs = render_sidebar()
 
-    render_result_section()
-    render_history_section()
+        if inputs["submitted"]:
+            handle_generation(inputs)
+
+        render_result_section()
+
+    with tab_stats:
+        render_history_tab()
 
     st.divider()
     st.caption(
-        "Made with ❤️ using Streamlit · Jinja2 · yt-dlp · qrcode · Pillow"
+        "Made with ❤️ using Streamlit · Jinja2 · yt-dlp · qrcode · Pillow — 1 file app.py duy nhất"
     )
 
 
