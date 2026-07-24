@@ -1,44 +1,79 @@
-<!DOCTYPE html>
-<!--
-    ==========================================================================
-    LOVE PAGE GENERATOR - TEMPLATE TRANG TÌNH YÊU
-    Template này được render bởi Jinja2 trong app.py.
-    Toàn bộ CSS và JS được nhúng thẳng vào file (inline) để trang HTML
-    xuất ra là MỘT FILE DUY NHẤT, độc lập, có thể chia sẻ mà không phụ
-    thuộc vào file tĩnh nào khác.
-    ==========================================================================
--->
-<html lang="vi">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#ff4d6d" />
+"""
+==============================================================================
+LOVE PAGE GENERATOR  —  PHIÊN BẢN GỘP 1 FILE DUY NHẤT (app.py)
+------------------------------------------------------------------------------
+Toàn bộ CSS, JavaScript và template HTML của "trang tình yêu" được nhúng
+thẳng vào file Python này dưới dạng chuỗi (không cần thư mục templates/
+hay static/css, static/js nữa). Chỉ cần duy nhất file app.py này +
+requirements.txt là chạy được.
 
-    <!-- SEO / chia sẻ mạng xã hội -->
-    <title>Test</title>
-    <meta name="description" content="Anh yêu em ❤️" />
-    <meta property="og:title" content="Test" />
-    <meta property="og:description" content="Anh yêu em ❤️" />
-    <meta property="og:type" content="website" />
-    
+Cách chạy:
+    pip install -r requirements.txt
+    streamlit run app.py
 
-    <!-- Google Fonts: chữ viết tay lãng mạn + font chính -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Playfair+Display:ital,wght@1,600&family=Poppins:wght@300;400;500;600;700&display=swap"
-        rel="stylesheet"
-    />
+------------------------------------------------------------------------------
+GHI CHÚ SỬA LỖI "không tải được trang web kết quả":
+    Bản trước dùng tính năng enableStaticServing của Streamlit để serve file
+    tĩnh ở /app/static/... Vấn đề là Streamlit CHỈ đọc config.toml MỘT LẦN
+    lúc khởi động server, trước khi app.py kịp chạy — nên việc tự ghi
+    config.toml từ trong script luôn đến quá trễ, và trên nhiều nền tảng
+    deploy (Streamlit Community Cloud, Render dùng buildpack mặc định...)
+    bạn không thể tự thêm cờ --server.enableStaticServing được, khiến link
+    luôn bị lỗi 404 / không tải được.
 
-    <!-- Favicon trái tim (emoji data-uri, không cần file ngoài) -->
-    <link
-        rel="icon"
-        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>"
-    />
+    => Đã chuyển sang cơ chế "xem trang qua query param" ngay trong chính
+    app này: link chia sẻ có dạng {domain}/?page=<id>. Khi ai đó mở link,
+    Streamlit chạy lại script, app.py phát hiện có tham số ?page=<id> trên
+    URL và tự động hiển thị đúng trang tình yêu tương ứng (ẩn toàn bộ giao
+    diện tạo trang / sidebar đi). Cách này chạy được ngay với
+    "streamlit run app.py" thông thường, không cần cờ, không cần khởi động
+    lại, và hoạt động trên mọi nền tảng deploy.
 
-    <style>
-        /* ================= CSS ĐƯỢC NHÚNG TỪ static/css/style.css ================= */
-        /* ==========================================================================
+------------------------------------------------------------------------------
+GHI CHÚ HIỆU NĂNG (đợt sửa này):
+    Trang kết quả trước đây bị giật/lag trên máy yếu vì 4 nguyên nhân chính:
+      1) Canvas particle vẽ shadowBlur cho từng hạt, mỗi frame — shadowBlur
+         là phép toán CANVAS TỐN NHẤT, nhân với 70 hạt x 60 lần/giây là quá tải.
+      2) Nhiều lớp backdrop-filter (glass-card, music-bar, overlay, bg-overlay)
+         xếp chồng lên nhau, mà phía sau chúng lại có tim bay + particle
+         chuyển động liên tục -> trình duyệt phải tính lại blur nền mỗi frame.
+      3) Không giới hạn số lượng tim bay đồng thời trong DOM, tim tạo vô tội vạ
+         theo setInterval độc lập với heartCount thực tế còn sống.
+      4) Không có "chế độ máy yếu": mọi thiết bị đều nhận cấu hình hiệu ứng
+         giống nhau dù là điện thoại cấu hình thấp hay laptop mạnh.
+    => Đã thêm: tự phát hiện thiết bị yếu (số nhân CPU, RAM, độ rộng màn hình)
+    để tự giảm số hạt/tim, bỏ shadowBlur, giới hạn tim tối đa cùng lúc, giảm
+    blur của các lớp glass, tạm dừng toàn bộ animation khi tab bị ẩn, và tôn
+    trọng prefers-reduced-motion.
+
+Tác giả: Senior Python Developer
+==============================================================================
+"""
+
+import base64
+import io
+import json
+import os
+import re
+import uuid
+from datetime import datetime
+
+import qrcode
+import streamlit as st
+import streamlit.components.v1 as components
+from jinja2 import Environment, select_autoescape
+
+# yt_dlp chỉ dùng để TÌM video Youtube phù hợp với tên bài hát (lấy metadata
+# / video id), KHÔNG tải bất kỳ file nhạc nào về máy.
+import yt_dlp
+
+
+# ==============================================================================
+# 1. TÀI NGUYÊN NHÚNG SẴN: CSS + JAVASCRIPT + TEMPLATE HTML
+#    (được nhúng thẳng vào biến Python thay vì đọc từ file rời)
+# ==============================================================================
+
+CSS_CONTENT = r"""/* ==========================================================================
    LOVE PAGE GENERATOR - MAIN STYLESHEET
    Tác giả: Senior Python Developer
    Mô tả: Toàn bộ hiệu ứng nền, trái tim bay, glassmorphism, animation chữ,
@@ -638,118 +673,9 @@ body.low-fx .main-message {
     background: var(--primary-color);
     border-radius: 8px;
 }
+"""
 
-
-        /* ================= GHI ĐÈ BIẾN MÀU THEO NGƯỜI DÙNG CHỌN ================= */
-        :root {
-            --primary-color: #ff4d6d;
-            --secondary-color: #ff8fa3;
-            --accent-color: #ffd6e0;
-            --glow-color: rgba(255,77,109,0.75);
-            --heart-speed: 8s;
-        }
-
-        
-    </style>
-</head>
-<body
-    class=""
-    data-heart-count="20"
-    data-heart-speed="8"
-    data-youtube-id="dQw4w9WgXcQ"
-    data-song-title="Test Song"
-    data-primary-color="#ff4d6d"
-    data-message="Anh yêu em ❤️"
->
-    <!-- Ghi chú: class "low-fx" được JS tự thêm vào <body> lúc chạy nếu phát
-         hiện thiết bị yếu (xem detectLowPerfDevice() trong effects.js),
-         không cần Jinja2 render sẵn vì phải kiểm tra bằng JS phía trình duyệt. -->
-
-    <!-- ====================================================================
-         LỚP NỀN: overlay hồng blur + ánh sáng lung linh (aurora)
-         ==================================================================== -->
-    <div class="bg-overlay"></div>
-    <div class="aurora-light"></div>
-
-    <!-- ====================================================================
-         LỚP PARTICLE (canvas) - vẽ bằng JS, tự ẩn khi máy yếu
-         ==================================================================== -->
-    <canvas id="particle-canvas"></canvas>
-
-    <!-- ====================================================================
-         LỚP TRÁI TIM BAY LIÊN TỤC
-         ==================================================================== -->
-    <div id="hearts-container"></div>
-
-    <!-- ====================================================================
-         OVERLAY "CHẠM ĐỂ BẮT ĐẦU" (xử lý autoplay bị trình duyệt chặn)
-         ==================================================================== -->
-    
-    <div class="tap-overlay" id="tap-overlay">
-        <div class="pulse-heart">❤️</div>
-        <p>Chạm vào màn hình để bắt đầu</p>
-        <span class="small">Test Song</span>
-    </div>
-    
-
-    <!-- ====================================================================
-         NỘI DUNG TRUNG TÂM: avatar + dòng chữ + ngày tháng
-         ==================================================================== -->
-    <div class="center-wrapper">
-        <div class="glass-card">
-
-            
-
-            <div class="main-message">Anh yêu em ❤️</div>
-
-            <div class="sub-text">Được gửi bằng tất cả yêu thương</div>
-
-            
-            <div class="date-text">24/07/2026</div>
-            
-        </div>
-    </div>
-
-    <!-- ====================================================================
-         THANH ĐIỀU KHIỂN NHẠC (chỉ hiện nếu có bài hát)
-         ==================================================================== -->
-    
-    <div class="music-bar">
-        <button id="play-pause-btn" class="play-btn" aria-label="Play/Pause"></button>
-
-        <div class="track-info">
-            <span class="track-title">Test Song</span>
-        </div>
-
-        <div class="eq-bars">
-            <span></span><span></span><span></span>
-        </div>
-
-        <div class="volume-wrap">
-            <svg viewBox="0 0 24 24" width="16" height="16">
-                <path
-                    fill="currentColor"
-                    d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-.77-3.29-2-4.2v8.4c1.23-.91 2-2.43 2-4.2z"
-                />
-            </svg>
-            <input type="range" id="volume-slider" min="0" max="100" value="70" />
-        </div>
-    </div>
-
-    <!-- Div ẩn chứa YouTube player (âm thanh, không hiện khung hình) -->
-    <div id="yt-player" style="position:fixed; bottom:-200px; left:-200px; width:1px; height:1px; opacity:0;"></div>
-    
-
-    <!-- ====================================================================
-         CHỮ KÝ CUỐI TRANG
-         ==================================================================== -->
-    <div class="signature-footer">💌 made with Love Page Generator</div>
-
-    <!-- ====================================================================
-         SCRIPT: nhúng toàn bộ static/js/effects.js
-         ==================================================================== -->
-    <script>
-        /* ==========================================================================
+JS_CONTENT = r"""/* ==========================================================================
    LOVE PAGE GENERATOR - CLIENT SIDE EFFECTS (bản tối ưu hiệu năng)
    File này chạy trong trang HTML đã tạo (được nhúng trực tiếp vào <script>).
    Toàn bộ config (số lượng tim, tốc độ, youtube id...) được đọc từ
@@ -1220,7 +1146,809 @@ body.low-fx .main-message {
         init();
     }
 })();
+"""
 
+HTML_TEMPLATE = r"""<!DOCTYPE html>
+<!--
+    ==========================================================================
+    LOVE PAGE GENERATOR - TEMPLATE TRANG TÌNH YÊU
+    Template này được render bởi Jinja2 trong app.py.
+    Toàn bộ CSS và JS được nhúng thẳng vào file (inline) để trang HTML
+    xuất ra là MỘT FILE DUY NHẤT, độc lập, có thể chia sẻ mà không phụ
+    thuộc vào file tĩnh nào khác.
+    ==========================================================================
+-->
+<html lang="vi">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="{{ primary_color }}" />
+
+    <!-- SEO / chia sẻ mạng xã hội -->
+    <title>{{ title }}</title>
+    <meta name="description" content="{{ message }}" />
+    <meta property="og:title" content="{{ title }}" />
+    <meta property="og:description" content="{{ message }}" />
+    <meta property="og:type" content="website" />
+    {% if bg_image_data %}
+    <meta property="og:image" content="{{ bg_image_data }}" />
+    {% endif %}
+
+    <!-- Google Fonts: chữ viết tay lãng mạn + font chính -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Playfair+Display:ital,wght@1,600&family=Poppins:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet"
+    />
+
+    <!-- Favicon trái tim (emoji data-uri, không cần file ngoài) -->
+    <link
+        rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>"
+    />
+
+    <style>
+        /* ================= CSS ĐƯỢC NHÚNG TỪ static/css/style.css ================= */
+        {{ css_content|safe }}
+
+        /* ================= GHI ĐÈ BIẾN MÀU THEO NGƯỜI DÙNG CHỌN ================= */
+        :root {
+            --primary-color: {{ primary_color }};
+            --secondary-color: {{ secondary_color }};
+            --accent-color: {{ accent_color }};
+            --glow-color: {{ glow_color }};
+            --heart-speed: {{ heart_speed }}s;
+        }
+
+        {% if bg_image_data %}
+        body {
+            background-image: url('{{ bg_image_data }}');
+        }
+        {% endif %}
+    </style>
+</head>
+<body
+    class="{% if bg_image_data %}has-bg-image{% endif %}"
+    data-heart-count="{{ heart_count }}"
+    data-heart-speed="{{ heart_speed }}"
+    data-youtube-id="{{ youtube_id }}"
+    data-song-title="{{ song_title }}"
+    data-primary-color="{{ primary_color }}"
+    data-message="{{ message }}"
+>
+    <!-- Ghi chú: class "low-fx" được JS tự thêm vào <body> lúc chạy nếu phát
+         hiện thiết bị yếu (xem detectLowPerfDevice() trong effects.js),
+         không cần Jinja2 render sẵn vì phải kiểm tra bằng JS phía trình duyệt. -->
+
+    <!-- ====================================================================
+         LỚP NỀN: overlay hồng blur + ánh sáng lung linh (aurora)
+         ==================================================================== -->
+    <div class="bg-overlay"></div>
+    <div class="aurora-light"></div>
+
+    <!-- ====================================================================
+         LỚP PARTICLE (canvas) - vẽ bằng JS, tự ẩn khi máy yếu
+         ==================================================================== -->
+    <canvas id="particle-canvas"></canvas>
+
+    <!-- ====================================================================
+         LỚP TRÁI TIM BAY LIÊN TỤC
+         ==================================================================== -->
+    <div id="hearts-container"></div>
+
+    <!-- ====================================================================
+         OVERLAY "CHẠM ĐỂ BẮT ĐẦU" (xử lý autoplay bị trình duyệt chặn)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="tap-overlay" id="tap-overlay">
+        <div class="pulse-heart">❤️</div>
+        <p>Chạm vào màn hình để bắt đầu</p>
+        <span class="small">{{ song_title }}</span>
+    </div>
+    {% endif %}
+
+    <!-- ====================================================================
+         NỘI DUNG TRUNG TÂM: avatar + dòng chữ + ngày tháng
+         ==================================================================== -->
+    <div class="center-wrapper">
+        <div class="glass-card">
+
+            {% if avatar_data %}
+            <div class="avatar-ring">
+                <img src="{{ avatar_data }}" alt="avatar" />
+            </div>
+            {% endif %}
+
+            <div class="main-message">{{ message }}</div>
+
+            <div class="sub-text">Được gửi bằng tất cả yêu thương</div>
+
+            {% if generated_date %}
+            <div class="date-text">{{ generated_date }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         THANH ĐIỀU KHIỂN NHẠC (chỉ hiện nếu có bài hát)
+         ==================================================================== -->
+    {% if youtube_id %}
+    <div class="music-bar">
+        <button id="play-pause-btn" class="play-btn" aria-label="Play/Pause"></button>
+
+        <div class="track-info">
+            <span class="track-title">{{ song_title }}</span>
+        </div>
+
+        <div class="eq-bars">
+            <span></span><span></span><span></span>
+        </div>
+
+        <div class="volume-wrap">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+                <path
+                    fill="currentColor"
+                    d="M3 10v4h4l5 5V5L7 10H3zm13.5 2c0-1.77-.77-3.29-2-4.2v8.4c1.23-.91 2-2.43 2-4.2z"
+                />
+            </svg>
+            <input type="range" id="volume-slider" min="0" max="100" value="70" />
+        </div>
+    </div>
+
+    <!-- Div ẩn chứa YouTube player (âm thanh, không hiện khung hình) -->
+    <div id="yt-player" style="position:fixed; bottom:-200px; left:-200px; width:1px; height:1px; opacity:0;"></div>
+    {% endif %}
+
+    <!-- ====================================================================
+         CHỮ KÝ CUỐI TRANG
+         ==================================================================== -->
+    <div class="signature-footer">💌 made with Love Page Generator</div>
+
+    <!-- ====================================================================
+         SCRIPT: nhúng toàn bộ static/js/effects.js
+         ==================================================================== -->
+    <script>
+        {{ js_content|safe }}
     </script>
 </body>
 </html>
+"""
+
+
+# ==============================================================================
+# 2. CẤU HÌNH ĐƯỜNG DẪN
+# ==============================================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PAGES_DIR = os.path.join(BASE_DIR, "static", "pages")
+INDEX_JSON_PATH = os.path.join(PAGES_DIR, "_index.json")
+
+os.makedirs(PAGES_DIR, exist_ok=True)
+
+MAX_IMAGE_DIMENSION = 1600
+MAX_AVATAR_DIMENSION = 500
+JPEG_QUALITY = 82
+
+
+# ==============================================================================
+# 3. XỬ LÝ MÀU SẮC
+# ==============================================================================
+def hex_to_rgb(hex_color: str):
+    hex_color = hex_color.lstrip("#")
+    if len(hex_color) == 3:
+        hex_color = "".join(c * 2 for c in hex_color)
+    return tuple(int(hex_color[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(rgb):
+    return "#{:02x}{:02x}{:02x}".format(*[max(0, min(255, int(c))) for c in rgb])
+
+
+def adjust_color(hex_color: str, amount: int) -> str:
+    r, g, b = hex_to_rgb(hex_color)
+    r = r + amount if amount >= 0 else r * (1 + amount / 255)
+    g = g + amount if amount >= 0 else g * (1 + amount / 255)
+    b = b + amount if amount >= 0 else b * (1 + amount / 255)
+    return rgb_to_hex((r, g, b))
+
+
+def hex_to_rgba_string(hex_color: str, alpha: float) -> str:
+    r, g, b = hex_to_rgb(hex_color)
+    return f"rgba({r}, {g}, {b}, {alpha})"
+
+
+# ==============================================================================
+# 4. XỬ LÝ YOUTUBE
+# ==============================================================================
+YOUTUBE_URL_PATTERN = re.compile(
+    r"(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([A-Za-z0-9_-]{11})"
+)
+
+
+def is_youtube_url(text: str) -> bool:
+    if not text:
+        return False
+    return bool(YOUTUBE_URL_PATTERN.search(text))
+
+
+def extract_youtube_id_from_url(url: str):
+    match = YOUTUBE_URL_PATTERN.search(url)
+    if match:
+        return match.group(1)
+    return None
+
+
+def search_youtube_by_song_name(song_name: str):
+    if not song_name or not song_name.strip():
+        return None, None
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "default_search": "ytsearch1",
+        "extract_flat": "in_playlist",
+        "socket_timeout": 12,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            result = ydl.extract_info(song_name, download=False)
+
+            if result and "entries" in result and len(result["entries"]) > 0:
+                entry = result["entries"][0]
+                video_id = entry.get("id")
+                title = entry.get("title", song_name)
+                return video_id, title
+
+            if result and result.get("id"):
+                return result.get("id"), result.get("title", song_name)
+
+    except Exception as exc:  # noqa: BLE001
+        st.session_state["last_youtube_error"] = str(exc)
+        return None, None
+
+    return None, None
+
+
+def resolve_youtube_id(song_name: str, youtube_link: str):
+    if youtube_link and is_youtube_url(youtube_link):
+        video_id = extract_youtube_id_from_url(youtube_link)
+        display_title = song_name.strip() if song_name else "Nhạc nền"
+        return video_id, display_title
+
+    if song_name and song_name.strip():
+        video_id, title = search_youtube_by_song_name(song_name.strip())
+        return video_id, (title or song_name.strip())
+
+    return None, ""
+
+
+# ==============================================================================
+# 5. XỬ LÝ ẢNH UPLOAD
+# ==============================================================================
+def uploaded_image_to_data_uri(uploaded_file, max_dimension: int) -> str:
+    if uploaded_file is None:
+        return ""
+
+    try:
+        from PIL import Image
+
+        image = Image.open(uploaded_file)
+
+        if image.mode in ("RGBA", "P"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
+            image = background
+        else:
+            image = image.convert("RGB")
+
+        image.thumbnail((max_dimension, max_dimension), Image.LANCZOS)
+
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=JPEG_QUALITY, optimize=True)
+        encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{encoded}"
+
+    except Exception as exc:  # noqa: BLE001
+        st.warning(f"⚠️ Không thể xử lý ảnh đã upload: {exc}")
+        return ""
+
+
+# ==============================================================================
+# 6. RENDER TRANG HTML BẰNG JINJA2
+# ==============================================================================
+def render_love_page(
+    message: str,
+    primary_color: str,
+    bg_image_data: str,
+    avatar_data: str,
+    youtube_id: str,
+    song_title: str,
+    heart_count: int,
+    heart_speed: float,
+) -> str:
+    env = Environment(autoescape=select_autoescape(disabled_extensions=("html",), default=False))
+    template = env.from_string(HTML_TEMPLATE)
+
+    secondary_color = adjust_color(primary_color, 40)
+    accent_color = adjust_color(primary_color, 90)
+    glow_color = hex_to_rgba_string(primary_color, 0.75)
+
+    html_output = template.render(
+        title="Trang Tình Yêu Của Bạn",
+        message=message,
+        primary_color=primary_color,
+        secondary_color=secondary_color,
+        accent_color=accent_color,
+        glow_color=glow_color,
+        bg_image_data=bg_image_data,
+        avatar_data=avatar_data,
+        youtube_id=youtube_id or "",
+        song_title=song_title or "",
+        heart_count=heart_count,
+        heart_speed=heart_speed,
+        generated_date=datetime.now().strftime("%d/%m/%Y"),
+        css_content=CSS_CONTENT,
+        js_content=JS_CONTENT,
+    )
+    return html_output
+
+
+# ==============================================================================
+# 7. LƯU TRANG ĐÃ TẠO + GHI INDEX
+# ==============================================================================
+def save_generated_page(html_content: str) -> str:
+    page_id = uuid.uuid4().hex[:8]
+    file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+
+    with open(file_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    _append_to_index(page_id)
+    return page_id
+
+
+def _append_to_index(page_id: str):
+    index_data = []
+    if os.path.exists(INDEX_JSON_PATH):
+        try:
+            with open(INDEX_JSON_PATH, "r", encoding="utf-8") as f:
+                index_data = json.load(f)
+        except Exception:  # noqa: BLE001
+            index_data = []
+
+    index_data.append(
+        {
+            "id": page_id,
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    )
+
+    with open(INDEX_JSON_PATH, "w", encoding="utf-8") as f:
+        json.dump(index_data, f, ensure_ascii=False, indent=2)
+
+
+def load_index():
+    if not os.path.exists(INDEX_JSON_PATH):
+        return []
+    try:
+        with open(INDEX_JSON_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:  # noqa: BLE001
+        return []
+
+
+# ==============================================================================
+# 8. XÁC ĐỊNH DOMAIN HIỆN TẠI ĐỂ SINH LINK CHIA SẺ
+# ==============================================================================
+def get_base_url() -> str:
+    try:
+        custom_url = st.secrets.get("PUBLIC_BASE_URL", "")
+        if custom_url:
+            return custom_url.rstrip("/")
+    except Exception:  # noqa: BLE001
+        pass
+
+    env_url = os.environ.get("PUBLIC_BASE_URL", "")
+    if env_url:
+        return env_url.rstrip("/")
+
+    host = None
+    try:
+        headers = st.context.headers  # type: ignore[attr-defined]
+        if headers:
+            host = headers.get("Host") or headers.get("host")
+    except Exception:  # noqa: BLE001
+        host = None
+
+    if host:
+        is_https = (
+            "streamlit.app" in host
+            or "onrender.com" in host
+            or "herokuapp.com" in host
+            or os.environ.get("RENDER") is not None
+        )
+        scheme = "https" if is_https else "http"
+        return f"{scheme}://{host}"
+
+    return "http://localhost:8501"
+
+
+def build_share_url(page_id: str) -> str:
+    base_url = get_base_url()
+    return f"{base_url}/?page={page_id}"
+
+
+# ==============================================================================
+# 9. TẠO QR CODE
+# ==============================================================================
+def generate_qr_code_bytes(url: str) -> bytes:
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=8,
+        border=3,
+    )
+    qr.add_data(url)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="#ff4d6d", back_color="white")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+# ==============================================================================
+# 10. ROUTE XEM TRANG CHIA SẺ (?page=<id>)
+# ==============================================================================
+def render_page_viewer(page_id: str):
+    file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+
+    if not os.path.exists(file_path):
+        st.error(
+            "💔 Không tìm thấy trang này. Link có thể đã sai hoặc trang đã bị xoá."
+        )
+        st.caption(f"Mã trang: `{page_id}`")
+        st.stop()
+
+    with open(file_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    st.markdown(
+        """
+        <style>
+            #MainMenu {visibility: hidden;}
+            header[data-testid="stHeader"] {display: none;}
+            footer {visibility: hidden;}
+            .block-container {
+                padding: 0 !important;
+                margin: 0 !important;
+                max-width: 100% !important;
+            }
+            iframe {
+                display: block;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    components.html(html_content, height=1000, scrolling=True)
+
+
+# ==============================================================================
+# 11. GIAO DIỆN STREAMLIT
+# ==============================================================================
+def setup_page_config():
+    st.set_page_config(
+        page_title="Love Page Generator",
+        page_icon="❤️",
+        layout="centered",
+        initial_sidebar_state="expanded",
+    )
+
+
+def render_sidebar():
+    with st.sidebar:
+        st.markdown(
+            "<div style='text-align:center; font-size:52px;'>❤️</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<h2 style='text-align:center; margin-top:-10px;'>Love Page Generator</h2>",
+            unsafe_allow_html=True,
+        )
+        st.caption("Tạo trang HTML tình yêu chỉ trong vài giây 💌")
+
+        st.divider()
+
+        song_name = st.text_input(
+            "🎵 Tên bài hát",
+            placeholder="Ví dụ: Perfect - Ed Sheeran",
+            help="Ứng dụng sẽ tự tìm bài hát này trên YouTube.",
+        )
+
+        youtube_link = st.text_input(
+            "🔗 Link YouTube (nếu có)",
+            placeholder="https://www.youtube.com/watch?v=...",
+            help="Nếu bạn đã có sẵn link YouTube, dán vào đây để dùng chính xác video này.",
+        )
+
+        message = st.text_area(
+            "💬 Dòng chữ muốn hiện",
+            value="Anh yêu em ❤️",
+            height=90,
+            help="Dòng chữ chính sẽ hiển thị nổi bật ở giữa trang.",
+        )
+
+        bg_image_file = st.file_uploader(
+            "🖼️ Ảnh nền (không bắt buộc)",
+            type=["jpg", "jpeg", "png", "webp"],
+        )
+
+        avatar_file = st.file_uploader(
+            "🙂 Avatar (không bắt buộc)",
+            type=["jpg", "jpeg", "png", "webp"],
+        )
+
+        primary_color = st.color_picker("🎨 Màu chủ đạo", value="#ff4d6d")
+
+        heart_speed = st.slider(
+            "💨 Tốc độ trái tim (giây/vòng bay)",
+            min_value=3,
+            max_value=15,
+            value=8,
+            help="Giá trị càng nhỏ, trái tim bay càng nhanh.",
+        )
+
+        heart_count = st.slider(
+            "💗 Số lượng trái tim",
+            min_value=10,
+            max_value=60,
+            value=20,
+            step=5,
+            help=(
+                "Đã giới hạn tối đa 60 (thay vì 100 như trước) để trang chạy "
+                "mượt trên điện thoại và máy cấu hình thấp. Trang tự nhận diện "
+                "thiết bị yếu và sẽ tự giảm thêm số lượng hiệu ứng nếu cần."
+            ),
+        )
+
+        st.divider()
+
+        submitted = st.button("❤️ Tạo trang", use_container_width=True, type="primary")
+
+    return {
+        "song_name": song_name,
+        "youtube_link": youtube_link,
+        "message": message,
+        "bg_image_file": bg_image_file,
+        "avatar_file": avatar_file,
+        "primary_color": primary_color,
+        "heart_speed": heart_speed,
+        "heart_count": heart_count,
+        "submitted": submitted,
+    }
+
+
+def handle_generation(inputs: dict):
+    if not inputs["message"] or not inputs["message"].strip():
+        st.error("⚠️ Vui lòng nhập dòng chữ muốn hiển thị trước khi tạo trang.")
+        return
+
+    progress_bar = st.progress(0, text="🚀 Bắt đầu tạo trang...")
+
+    try:
+        progress_bar.progress(15, text="🎵 Đang tìm bài hát trên YouTube...")
+        youtube_id, song_title = resolve_youtube_id(
+            inputs["song_name"], inputs["youtube_link"]
+        )
+        if inputs["song_name"] and not youtube_id and not inputs["youtube_link"]:
+            st.warning(
+                "⚠️ Không tìm thấy bài hát trên YouTube, trang sẽ được tạo mà không có nhạc nền."
+            )
+
+        progress_bar.progress(40, text="🖼️ Đang xử lý hình ảnh...")
+        bg_image_data = uploaded_image_to_data_uri(
+            inputs["bg_image_file"], MAX_IMAGE_DIMENSION
+        )
+        avatar_data = uploaded_image_to_data_uri(
+            inputs["avatar_file"], MAX_AVATAR_DIMENSION
+        )
+
+        progress_bar.progress(65, text="🧩 Đang dựng giao diện trang tình yêu...")
+        html_content = render_love_page(
+            message=inputs["message"].strip(),
+            primary_color=inputs["primary_color"],
+            bg_image_data=bg_image_data,
+            avatar_data=avatar_data,
+            youtube_id=youtube_id or "",
+            song_title=song_title,
+            heart_count=inputs["heart_count"],
+            heart_speed=inputs["heart_speed"],
+        )
+
+        progress_bar.progress(85, text="💾 Đang lưu trang lên server...")
+        page_id = save_generated_page(html_content)
+        share_url = build_share_url(page_id)
+
+        progress_bar.progress(97, text="📱 Đang tạo mã QR...")
+        qr_bytes = generate_qr_code_bytes(share_url)
+
+        progress_bar.progress(100, text="✅ Hoàn tất!")
+
+        result = {
+            "page_id": page_id,
+            "share_url": share_url,
+            "qr_bytes": qr_bytes,
+            "message": inputs["message"].strip(),
+            "has_music": bool(youtube_id),
+            "created_at": datetime.now().strftime("%H:%M:%S %d/%m/%Y"),
+        }
+        st.session_state["last_result"] = result
+        st.session_state.setdefault("history", [])
+        st.session_state["history"].insert(0, result)
+
+    except Exception as exc:  # noqa: BLE001
+        progress_bar.empty()
+        st.error("❌ Đã có lỗi xảy ra trong quá trình tạo trang.")
+        st.exception(exc)
+
+
+def render_copy_button(url: str):
+    safe_url = json.dumps(url)
+    components.html(
+        f"""
+        <div style="display:flex; gap:8px; align-items:center; font-family:sans-serif;">
+            <button id="copy-btn" style="
+                background:#ff4d6d; color:white; border:none; padding:8px 16px;
+                border-radius:8px; cursor:pointer; font-size:14px; font-weight:600;">
+                📋 Copy Link
+            </button>
+            <span id="copy-status" style="font-size:13px; color:#888;"></span>
+        </div>
+        <script>
+            const btn = document.getElementById("copy-btn");
+            const status = document.getElementById("copy-status");
+            btn.addEventListener("click", async () => {{
+                try {{
+                    await navigator.clipboard.writeText({safe_url});
+                    status.textContent = "Đã sao chép ✔";
+                    setTimeout(() => status.textContent = "", 2000);
+                }} catch (err) {{
+                    status.textContent = "Không thể copy tự động, hãy copy thủ công.";
+                }}
+            }});
+        </script>
+        """,
+        height=45,
+    )
+
+
+def render_result_section():
+    result = st.session_state.get("last_result")
+    if not result:
+        return
+
+    st.success("✅ Thành công! Trang tình yêu của bạn đã sẵn sàng.")
+
+    st.markdown("#### 🔗 Link chia sẻ")
+    st.code(result["share_url"], language="text")
+    render_copy_button(result["share_url"])
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        st.markdown("#### 📱 Mã QR")
+        st.image(result["qr_bytes"], width=200)
+        st.download_button(
+            "⬇️ Tải mã QR",
+            data=result["qr_bytes"],
+            file_name=f"qr_{result['page_id']}.png",
+            mime="image/png",
+            use_container_width=True,
+        )
+
+    with col2:
+        st.markdown("#### ℹ️ Thông tin")
+        st.write(f"**Mã trang:** `{result['page_id']}`")
+        st.write(f"**Tạo lúc:** {result['created_at']}")
+        st.write(f"**Có nhạc nền:** {'Có 🎵' if result['has_music'] else 'Không'}")
+
+    with st.expander("👀 Xem trước trang tình yêu"):
+        page_path = os.path.join(PAGES_DIR, f"{result['page_id']}.html")
+        if os.path.exists(page_path):
+            with open(page_path, "r", encoding="utf-8") as f:
+                preview_html = f.read()
+            components.html(preview_html, height=650, scrolling=True)
+        else:
+            st.info("Không tìm thấy file xem trước.")
+
+
+def render_history_tab():
+    entries = load_index()
+    if not entries:
+        st.info("Chưa có trang nào được tạo. Hãy sang tab 'Tạo trang' để bắt đầu!")
+        return
+
+    base_url = get_base_url()
+    st.metric("Tổng số trang đã tạo", len(entries))
+    st.divider()
+
+    for entry in reversed(entries):
+        page_id = entry.get("id", "")
+        created_at = entry.get("created_at", "")
+        share_url = f"{base_url}/?page={page_id}"
+
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.write(f"**Mã trang:** `{page_id}`")
+                st.write(f"🕒 Tạo lúc: {created_at}")
+                st.write(f"🔗 [{share_url}]({share_url})")
+            with col2:
+                file_path = os.path.join(PAGES_DIR, f"{page_id}.html")
+                exists = os.path.exists(file_path)
+                st.write("✅ Còn tồn tại" if exists else "❌ Đã bị xoá")
+
+
+def render_intro():
+    st.title("💕 Love Page Generator")
+    st.write(
+        "Nhập thông tin ở thanh bên trái, sau đó bấm **❤️ Tạo trang** để tạo "
+        "ra một trang HTML tình yêu lung linh: nền hồng blur, trái tim bay, "
+        "particle, nhạc tự phát và dòng chữ toả sáng — rồi chia sẻ link cho "
+        "người ấy!"
+    )
+    st.info(
+        "💡 Mẹo: bạn có thể nhập tên bài hát (VD: *Perfect - Ed Sheeran*) để "
+        "ứng dụng tự tìm trên YouTube, hoặc dán thẳng link YouTube nếu đã có."
+    )
+    st.caption(
+        "⚡ Trang kết quả tự phát hiện thiết bị yếu và giảm bớt hiệu ứng "
+        "(số tim bay, particle nền, độ mờ kính) để luôn chạy mượt, không giật lag."
+    )
+
+
+# ==============================================================================
+# 12. MAIN
+# ==============================================================================
+def main():
+    shared_page_id = st.query_params.get("page")
+
+    if shared_page_id:
+        st.set_page_config(
+            page_title="💌 Trang Tình Yêu",
+            page_icon="❤️",
+            layout="wide",
+            initial_sidebar_state="collapsed",
+        )
+        render_page_viewer(shared_page_id)
+        return
+
+    setup_page_config()
+
+    tab_create, tab_stats = st.tabs(["💌 Tạo trang", "📊 Thống kê"])
+
+    with tab_create:
+        render_intro()
+        inputs = render_sidebar()
+
+        if inputs["submitted"]:
+            handle_generation(inputs)
+
+        render_result_section()
+
+    with tab_stats:
+        render_history_tab()
+
+    st.divider()
+    st.caption(
+        "Made with ❤️ using Streamlit · Jinja2 · yt-dlp · qrcode · Pillow — 1 file app.py duy nhất"
+    )
+
+
+if __name__ == "__main__":
+    main()
