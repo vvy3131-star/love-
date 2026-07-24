@@ -176,7 +176,7 @@ body.has-bg-image {
 .sparkle {
     position: fixed;
     z-index: 5;
-    width: 10px;
+    width: 100px;
     height: 10px;
     border-radius: 50%;
     background: radial-gradient(circle, #fff 0%, var(--primary-color) 60%, transparent 100%);
@@ -652,7 +652,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@600;700&family=Playfair+Display:ital,wght@1,600&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
     <style>
-        {{ css_content | safe }}
+        {% raw %}{{ css_content }}{% endraw %}
     </style>
 </head>
 <body 
@@ -708,7 +708,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div id="yt-player"></div>
 
     <script>
-        {{ js_content | safe }}
+        {% raw %}{{ js_content }}{% endraw %}
     </script>
 </body>
 </html>
@@ -781,9 +781,9 @@ def render_html_page(data: dict) -> str:
     """Sử dụng Jinja2 render HTML từ template."""
     env = Environment(autoescape=select_autoescape(["html", "xml"]))
     template = env.from_string(HTML_TEMPLATE)
-    return template.render(
-        css_content=CSS_CONTENT,
-        js_content=JS_CONTENT,
+    
+    # Render nội dung dữ liệu động trước
+    rendered = template.render(
         title=data.get("title", "Trang Tình Yêu"),
         message=data.get("message", "Anh Yêu Em"),
         sub_message=data.get("sub_message", ""),
@@ -796,6 +796,11 @@ def render_html_page(data: dict) -> str:
         avatar_data=data.get("avatar_data", ""),
         bg_image_data=data.get("bg_image_data", "")
     )
+    
+    # Thay thế thẻ raw bằng CSS và JS thật an toàn không lo lỗi parser Jinja
+    rendered = rendered.replace("{% raw %}{{ css_content }}{% endraw %}", CSS_CONTENT)
+    rendered = rendered.replace("{% raw %}{{ js_content }}{% endraw %}", JS_CONTENT)
+    return rendered
 
 
 # ==============================================================================
