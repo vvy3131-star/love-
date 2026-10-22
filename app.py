@@ -9,6 +9,12 @@ Có gì mới ở trang kết quả:
   ✨ Sao lấp lánh + sao băng + trái tim được ghép từ các hạt sáng
   🌸 Cánh hoa rơi, tim bay, chạm đâu nổ tim/emoji đáng yêu đó
   💬 Lời nhắn dễ thương thỉnh thoảng bay lên
+  🎆 Pháo hoa nổ thành hình trái tim (tự bắn + khi chạm bóng bay)
+  🎈 Bóng bay bay lên, bấm nổ ra lời yêu thương
+  🧸 Gấu bông ló ra từ mép màn hình, chạm vào để nghe nó nói
+  ⏱️ Đồng hồ đếm "chúng ta đã bên nhau" (nếu nhập ngày yêu)
+  🤫 Bất ngờ ẩn: giữ ngón tay, chạm 3 lần vào chữ, lắc điện thoại -> bão tim + pháo hoa
+  📝 Lời nhắn bí mật riêng hiện ở màn hình quà cuối
   🎁 Nút bất ngờ cuối trang: gấu bông + pháo tim
   ⚡ Vẫn giữ chế độ máy yếu (low-fx), tạm dừng khi tab ẩn
 Sửa lỗi: bật autoescape cho Jinja2 (chống chèn mã HTML/JS từ ô nhập chữ),
@@ -117,6 +123,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;heigh
 @media(max-width:480px){.glass-card{padding:36px 20px 30px;border-radius:26px}.avatar-ring{width:92px;height:92px}.music-bar{min-width:0;width:92vw;bottom:12px}.volume-wrap input{width:48px}}
 @media(max-height:480px) and (orientation:landscape){.glass-card{padding:18px 24px;gap:8px}.avatar-ring{width:60px;height:60px}.music-bar{bottom:6px}}
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}}
+
+/* ===== v3: bất ngờ thêm ===== */
+#fw-canvas{position:fixed;inset:0;z-index:80;pointer-events:none;width:100%;height:100%}
+#balloons{position:fixed;inset:0;z-index:7;pointer-events:none;overflow:hidden}
+.balloon{position:absolute;bottom:-90px;pointer-events:auto;cursor:pointer;animation:rise linear forwards;will-change:transform;line-height:1}
+@keyframes rise{0%{transform:translate3d(0,0,0) rotate(-5deg)}25%{transform:translate3d(18px,-30vh,0) rotate(5deg)}50%{transform:translate3d(-14px,-60vh,0) rotate(-5deg)}75%{transform:translate3d(16px,-90vh,0) rotate(5deg)}100%{transform:translate3d(0,-125vh,0) rotate(-3deg)}}
+.pop-word{position:fixed;z-index:62;pointer-events:none;transform:translate(-50%,0);font:700 28px 'Dancing Script',cursive;color:#fff;text-shadow:0 0 12px var(--primary-color),0 0 26px var(--primary-color);animation:wordUp 1.8s ease-out forwards;white-space:nowrap}
+@keyframes wordUp{0%{opacity:0;transform:translate(-50%,10px) scale(.5)}20%{opacity:1;transform:translate(-50%,-6px) scale(1.2)}100%{opacity:0;transform:translate(-50%,-80px) scale(1)}}
+.mega{position:fixed;z-index:65;font-size:40px;pointer-events:none;animation:mega 1.3s ease-out forwards}
+@keyframes mega{0%{transform:translate(-50%,-50%) scale(.3);opacity:1}60%{transform:translate(-50%,-50%) scale(6);opacity:1}100%{transform:translate(-50%,-50%) scale(9);opacity:0}}
+.glass-card{transform:perspective(900px) rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg));transition:transform .2s ease-out}
+.bear{position:fixed;left:-90px;top:60%;z-index:35;font-size:64px;line-height:1;cursor:pointer;transition:left .9s cubic-bezier(.3,1.5,.5,1)}
+.bear.peek{left:-8px;animation:wave 2.4s ease-in-out infinite 1s}
+@keyframes wave{50%{transform:rotate(9deg)}}
+.bear-bubble{position:absolute;left:72px;top:-6px;padding:8px 12px;border-radius:16px 16px 16px 4px;background:#fff;color:#b0214a;font:700 13px 'Quicksand',sans-serif;white-space:nowrap;opacity:0;transform:scale(.6);transform-origin:left bottom;transition:opacity .25s,transform .25s;pointer-events:none}
+.bear-bubble.show{opacity:1;transform:scale(1)}
+.counter{opacity:0;transition:opacity 1.4s ease;display:flex;flex-direction:column;gap:2px;font-size:13px}
+.counter b{font:700 22px 'Quicksand',sans-serif;color:var(--accent-color);text-shadow:0 0 12px var(--glow-color);font-variant-numeric:tabular-nums}
+.main-message.done~.counter{opacity:1}
+.surprise p{white-space:pre-wrap;max-width:560px}
 '''
 
 JS_CONTENT = r'''(function(){"use strict";
@@ -144,7 +170,7 @@ size();var rt;addEventListener("resize",function(){clearTimeout(rt);rt=setTimeou
 
 /* ---- Tim bay, cánh hoa rơi ---- */
 var SVG='<svg viewBox="0 0 32 29"><path fill="currentColor" d="M23.6 0c-3 0-5.9 1.6-7.6 4.3C14.3 1.6 11.4 0 8.4 0 3.8 0 0 3.8 0 8.4c0 8.4 12 17.3 15.2 19.6.5.4 1.1.4 1.6 0C20 25.7 32 16.8 32 8.4 32 3.8 28.2 0 23.6 0z"/></svg>',live=0,livep=0;
-function heart(){if(live>=MAXH)return;var h=document.createElement("div"),s=R(14,32),d=R(C.sp*.8,C.sp*1.25);h.className="heart";h.style.cssText="left:"+R(0,100)+"vw;width:"+s+"px;height:"+s+"px;--drift:"+R(-50,50)+"px;animation-duration:"+d+"s;color:"+(Math.random()>.45?P(["#ff8fa3","#ffd6e0","#fff","#ff4d6d"]):"var(--primary-color)");h.innerHTML=SVG;$("hearts-container").appendChild(h);live++;setTimeout(function(){h.remove();live--},d*1000+300)}
+function heart(f){if(!f&&live>=MAXH)return;var h=document.createElement("div"),s=R(14,32),d=R(C.sp*.8,C.sp*1.25);h.className="heart";h.style.cssText="left:"+R(0,100)+"vw;width:"+s+"px;height:"+s+"px;--drift:"+R(-50,50)+"px;animation-duration:"+d+"s;color:"+(Math.random()>.45?P(["#ff8fa3","#ffd6e0","#fff","#ff4d6d"]):"var(--primary-color)");h.innerHTML=SVG;$("hearts-container").appendChild(h);live++;setTimeout(function(){h.remove();live--},d*1000+300)}
 function petal(){if(livep>=MAXP)return;var e=document.createElement("div"),d=R(7,12);e.className="petal";e.style.cssText="left:"+R(0,100)+"vw;--sway:"+R(-60,60)+"px;animation-duration:"+d+"s;transform:scale("+R(.7,1.3)+")";$("petals").appendChild(e);livep++;setTimeout(function(){e.remove();livep--},d*1000+200)}
 function ambient(){for(var i=0;i<Math.min(C.n,LOW?10:30);i++)setTimeout(heart,R(0,3500));
  setInterval(function(){if(vis){heart();if(Math.random()>.5)petal()}},LOW?1000:Math.max(380,6000/Math.max(C.n,1)))}
@@ -156,7 +182,7 @@ document.addEventListener("pointerdown",function(e){var t=performance.now();if(t
 var tl=0;document.addEventListener("pointermove",function(e){if(LOW||e.pointerType==="touch")return;var t=performance.now();if(t-tl<110)return;tl=t;burst(e.clientX,e.clientY,1,false)});
 
 /* ---- Lời nhắn đáng yêu bay lên ---- */
-var NOTES=["Nhớ bạn nhiều lắm 🥺","Hôm nay bạn cười chưa? 😊","Cảm ơn vì đã xuất hiện 💗","Ôm một cái nè 🤗","Bạn là điều dễ thương nhất 🧸","Thương bạn nhiều hơn hôm qua 💕","Đừng quên uống nước nha 💧","Có mình ở đây rồi 🫶"];
+var NOTES=["Nhớ bạn nhiều lắm 🥺","Hôm nay bạn cười chưa? 😊","Cảm ơn vì đã xuất hiện 💗","Ôm một cái nè 🤗","Bạn là điều dễ thương nhất 🧸","Thương bạn nhiều hơn hôm qua 💕","Đừng quên uống nước nha 💧","Có mình ở đây rồi 🫶","Giữ ngón tay lên màn hình một chút nhé 👆","Thử lắc điện thoại xem 📱","Chạm 3 lần vào dòng chữ nha 🤫","Bắt bóng bay đi, có bí mật đó 🎈"];
 function note(){if(!vis)return;var n=document.createElement("div");n.className="note";n.textContent=P(NOTES);n.style.left=R(6,Math.max(10,(innerWidth<500?45:70)))+"vw";n.style.top=R(14,innerHeight<500?50:70)+"vh";$("notes").appendChild(n);setTimeout(function(){n.remove()},6600)}
 
 /* ---- Nhạc YouTube ---- */
@@ -175,14 +201,60 @@ var started=false;
 function open(){if(started)return;started=true;var env=$("env"),st=$("envelope-stage");env.classList.add("open");
  var r=env.getBoundingClientRect();burst(r.left+r.width/2,r.top+r.height/2,14,true);
  if(yp&&yp.playVideo)yp.playVideo();
+ try{if(window.DeviceMotionEvent&&DeviceMotionEvent.requestPermission)DeviceMotionEvent.requestPermission().catch(function(){});if(window.DeviceOrientationEvent&&DeviceOrientationEvent.requestPermission)DeviceOrientationEvent.requestPermission().catch(function(){})}catch(e){}
  setTimeout(function(){st.classList.add("opened");B.classList.add("revealed");hform=1;ambient();
-  type(function(){burst(innerWidth/2,innerHeight*.4,16,true);setInterval(note,LOW?9000:5200);setTimeout(note,800)})},1500)}
+  type(function(){burst(innerWidth/2,innerHeight*.4,16,true);setInterval(note,LOW?9000:5200);setTimeout(note,800);extras()})},1500)}
 
 /* ---- Bất ngờ cuối: bấm nút ---- */
 function bindSurprise(){var b=$("hug-btn"),s=$("surprise");if(!b||!s)return;
- b.onclick=function(e){e.stopPropagation();s.classList.add("show");for(var i=0;i<5;i++)setTimeout(function(){burst(R(.15,.85)*innerWidth,R(.2,.7)*innerHeight,12,true)},i*260)};
+ b.onclick=function(e){e.stopPropagation();s.classList.add("show");finale();storm();for(var i=0;i<5;i++)setTimeout(function(){burst(R(.15,.85)*innerWidth,R(.2,.7)*innerHeight,12,true)},i*260)};
  s.onclick=function(){s.classList.remove("show")}}
 var av=document.querySelector(".avatar-wrap");if(av)av.addEventListener("click",function(e){burst(e.clientX,e.clientY,12,true)});
+
+
+/* ===== v3: pháo hoa tim, bóng bay, gấu bông, đồng hồ yêu, bất ngờ ẩn ===== */
+var fc=$("fw-canvas"),fx=fc.getContext("2d"),rk=[],fp=[],fdirty=false,PAL=["#ff4d6d","#ff8fa3","#ffd6e0","#ffffff","#ffd166","#c77dff"];
+function fsize(){fc.width=innerWidth*dpr;fc.height=innerHeight*dpr;fx.setTransform(dpr,0,0,dpr,0,0)}
+fsize();addEventListener("resize",fsize);
+function firework(x,y,heartShape){if(rk.length>6)return;rk.push({x:x,y:innerHeight,ty:y,h:heartShape,c:P(PAL)})}
+function explode(r){var n=LOW?24:(r.h?72:54);if(fp.length>(LOW?90:360))return;for(var i=0;i<n;i++){var vx,vy,life=R(50,80);
+ if(r.h){var t=i/n*6.2832;vx=16*Math.pow(Math.sin(t),3)*.2;vy=-(13*Math.cos(t)-5*Math.cos(2*t)-2*Math.cos(3*t)-Math.cos(4*t))*.2}
+ else{var a=R(0,6.2832),sp=R(1.2,5);vx=Math.cos(a)*sp;vy=Math.sin(a)*sp}
+ fp.push({x:r.x,y:r.y,vx:vx,vy:vy,l:life,m:life,c:Math.random()>.3?r.c:P(PAL),s:R(1.4,2.8)})}}
+var fl=0;(function floop(t){requestAnimationFrame(floop);if(!vis||(!rk.length&&!fp.length&&!fdirty)||t-fl<30)return;fl=t;fx.clearRect(0,0,innerWidth,innerHeight);
+ for(var i=rk.length-1;i>=0;i--){var r=rk[i];r.y+=(r.ty-r.y)*.1;fx.fillStyle=r.c;fx.beginPath();fx.arc(r.x,r.y,2.4,0,6.3);fx.fill();if(Math.abs(r.ty-r.y)<10){explode(r);rk.splice(i,1)}}
+ for(var j=fp.length-1;j>=0;j--){var p=fp[j];p.vy+=.045;p.vx*=.985;p.x+=p.vx;p.y+=p.vy;p.l--;if(p.l<=0){fp.splice(j,1);continue}fx.globalAlpha=p.l/p.m;fx.fillStyle=p.c;fx.beginPath();fx.arc(p.x,p.y,p.s,0,6.3);fx.fill()}
+ fx.globalAlpha=1;fdirty=rk.length>0||fp.length>0})(0);
+function finale(){for(var i=0;i<6;i++)setTimeout(function(k){firework(R(.15,.85)*innerWidth,R(.12,.5)*innerHeight,k%2===0)}.bind(null,i),i*330)}
+function storm(){for(var i=0;i<(LOW?14:36);i++)setTimeout(function(){heart(true)},i*70)}
+
+var BW=["Yêu","Thương","Nhớ","Mãi bên nhau","Hạnh phúc","Cười lên nào","Của riêng em","Ôm nè","Luôn ở đây"];
+function word(x,y,t){var w=document.createElement("div");w.className="pop-word";w.textContent=t+" 💕";w.style.left=x+"px";w.style.top=y+"px";document.body.appendChild(w);setTimeout(function(){w.remove()},1900)}
+function balloon(){if(!vis||document.querySelectorAll(".balloon").length>=(LOW?2:4))return;var b=document.createElement("div"),d=R(12,17);b.className="balloon";b.textContent="🎈";
+ b.style.cssText="left:"+R(5,88)+"vw;animation-duration:"+d+"s;font-size:"+R(40,58)+"px;filter:hue-rotate("+P([0,40,140,200,300])+"deg)";
+ b.onpointerdown=function(e){e.stopPropagation();var r=b.getBoundingClientRect(),x=r.left+r.width/2,y=r.top+r.height/2;b.remove();burst(x,y,10,true);firework(x,y,true);word(x,y,P(BW))};
+ $("balloons").appendChild(b);setTimeout(function(){b.remove()},d*1000+200)}
+
+var bt=0;function bearTalk(){var bb=$("bear-bubble");if(!bb)return;bb.textContent=P(NOTES);bb.classList.add("show");clearTimeout(bt);bt=setTimeout(function(){bb.classList.remove("show")},3200)}
+var bear=$("bear");if(bear)bear.addEventListener("pointerdown",function(e){e.stopPropagation();var r=bear.getBoundingClientRect();bearTalk();burst(r.left+40,r.top+20,8,false)});
+
+function tilt(y,x){var c=document.querySelector(".glass-card");if(c){c.style.setProperty("--ry",y+"deg");c.style.setProperty("--rx",x+"deg")}}
+if(!LOW){addEventListener("pointermove",function(e){if(e.pointerType==="touch")return;tilt((e.clientX/innerWidth-.5)*10,(e.clientY/innerHeight-.5)*-10)});
+ addEventListener("deviceorientation",function(e){if(e.gamma==null||e.beta==null)return;tilt(Math.max(-14,Math.min(14,e.gamma))/2,Math.max(-14,Math.min(14,e.beta-45))/-2)})}
+
+var lastS=0;addEventListener("devicemotion",function(e){var a=e.accelerationIncludingGravity;if(!a||!started)return;var m=Math.abs(a.x)+Math.abs(a.y)+Math.abs(a.z),t=Date.now();if(m>38&&t-lastS>1800){lastS=t;storm();finale()}});
+var tp=[];var mm=$("main-message");if(mm)mm.addEventListener("click",function(){var t=Date.now();tp=tp.filter(function(v){return t-v<800});tp.push(t);if(tp.length>=3){tp=[];storm();finale();burst(innerWidth/2,innerHeight*.4,18,true)}});
+var ht=null,hx=0,hy=0;
+function mega(x,y){var m=document.createElement("div");m.className="mega";m.textContent="💖";m.style.left=x+"px";m.style.top=y+"px";document.body.appendChild(m);setTimeout(function(){m.remove()},1400);firework(x,y,true);setTimeout(function(){firework(x-80,y-60,false);firework(x+80,y-60,false)},250);storm()}
+document.addEventListener("pointerdown",function(e){if(!started||e.target.closest("button,input,.music-bar"))return;hx=e.clientX;hy=e.clientY;clearTimeout(ht);ht=setTimeout(function(){mega(hx,hy)},900)});
+["pointerup","pointercancel"].forEach(function(n){document.addEventListener(n,function(){clearTimeout(ht)})});
+document.addEventListener("pointermove",function(e){if(Math.abs(e.clientX-hx)>14||Math.abs(e.clientY-hy)>14)clearTimeout(ht)});
+
+function counter(){var c=$("counter");if(!c)return;var s=new Date(c.dataset.start+"T00:00:00").getTime();if(isNaN(s))return;var o=$("counter-val");
+ function z(n){return("0"+n).slice(-2)}function up(){var d=Math.max(0,Date.now()-s);o.textContent=Math.floor(d/864e5)+" ngày "+z(Math.floor(d%864e5/36e5))+":"+z(Math.floor(d%36e5/6e4))+":"+z(Math.floor(d%6e4/1e3))}up();setInterval(function(){if(vis)up()},1000)}
+function extras(){finale();counter();setTimeout(balloon,2200);setInterval(balloon,LOW?12000:7000);
+ if(!LOW)setInterval(function(){if(vis)firework(R(.1,.9)*innerWidth,R(.1,.4)*innerHeight,Math.random()>.5)},7000);
+ setTimeout(function(){if(bear)bear.classList.add("peek")},9000)}
 
 function init(){music();initYT();bindSurprise();var s=$("envelope-stage");s.addEventListener("click",open)}
 document.readyState==="loading"?document.addEventListener("DOMContentLoaded",init):init();
@@ -217,6 +289,9 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
 <div id="hearts-container"></div>
 <div id="petals"></div>
 <div id="notes"></div>
+<div id="balloons"></div>
+<canvas id="fw-canvas"></canvas>
+<div class="bear" id="bear"><div class="bear-bubble" id="bear-bubble"></div>🧸</div>
 
 <!-- Phong thư: chạm để mở (cũng là lần chạm cho phép phát nhạc) -->
 <div class="envelope-stage" id="envelope-stage">
@@ -236,13 +311,14 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
     <div class="main-message" id="main-message"></div>
     <div class="sub-text">Được gửi bằng tất cả yêu thương</div>
     {% if generated_date %}<div class="date-text">{{ generated_date }}</div>{% endif %}
+    {% if love_start %}<div class="counter" id="counter" data-start="{{ love_start }}"><span>Chúng ta đã bên nhau</span><b id="counter-val"></b></div>{% endif %}
     <button class="hug-btn" id="hug-btn" type="button">Bấm vào đây nhé 🎁</button>
   </div>
 </div>
 
 <div class="surprise" id="surprise">
   <div class="big">🧸</div>
-  <p>Gửi bạn một cái ôm thật chặt!</p>
+  <p>{{ secret_message or "Gửi bạn một cái ôm thật chặt!" }}</p>
   <p style="font-size:16px;opacity:.7;font-family:Quicksand,sans-serif">Chạm để đóng</p>
 </div>
 
@@ -354,7 +430,8 @@ def uploaded_image_to_data_uri(f, max_dim):
 
 # ============================ 6. RENDER HTML ============================
 def render_love_page(message, primary_color, bg_image_data, avatar_data,
-                     youtube_id, song_title, heart_count, heart_speed):
+                     youtube_id, song_title, heart_count, heart_speed,
+                     love_start="", secret_message=""):
     env = Environment(autoescape=True)  # BẬT autoescape: chống XSS từ message/song_title
     return env.from_string(HTML_TEMPLATE).render(
         title="Gửi bạn một điều bất ngờ 💌",
@@ -366,6 +443,7 @@ def render_love_page(message, primary_color, bg_image_data, avatar_data,
         bg_image_data=bg_image_data, avatar_data=avatar_data,
         youtube_id=youtube_id or "", song_title=song_title or "",
         heart_count=heart_count, heart_speed=heart_speed,
+        love_start=love_start, secret_message=secret_message,
         generated_date=datetime.now().strftime("%d/%m/%Y"),
         css_content=CSS_CONTENT, js_content=JS_CONTENT,
     )
@@ -459,6 +537,10 @@ def render_sidebar():
                                max_chars=200, help="Có thể xuống dòng. Chữ sẽ hiện từng ký tự rất dễ thương.")
         bg_image_file = st.file_uploader("🖼️ Ảnh nền (không bắt buộc)", type=["jpg", "jpeg", "png", "webp"])
         avatar_file = st.file_uploader("🙂 Avatar (không bắt buộc)", type=["jpg", "jpeg", "png", "webp"])
+        love_date = st.date_input("⏱️ Ngày bắt đầu yêu (không bắt buộc)", value=None, min_value=datetime(1990, 1, 1).date(),
+                                  max_value=datetime.now().date(), help="Trang sẽ có đồng hồ đếm số ngày bên nhau.")
+        secret_message = st.text_area("🎁 Lời nhắn bí mật (hiện khi bấm nút quà)", height=80, max_chars=300,
+                                      placeholder="Để trống sẽ hiện: Gửi bạn một cái ôm thật chặt!")
         primary_color = st.color_picker("🎨 Màu chủ đạo", value="#ff4d6d")
         heart_speed = st.slider("💨 Tốc độ trái tim (giây/vòng bay)", 3, 15, 8)
         heart_count = st.slider("💗 Số lượng trái tim", 10, 60, 20, step=5,
@@ -467,6 +549,7 @@ def render_sidebar():
         submitted = st.button("❤️ Tạo trang", use_container_width=True, type="primary")
     return dict(song_name=song_name, youtube_link=youtube_link, message=message,
                 bg_image_file=bg_image_file, avatar_file=avatar_file, primary_color=primary_color,
+                love_date=love_date, secret_message=secret_message,
                 heart_speed=heart_speed, heart_count=heart_count, submitted=submitted)
 
 
@@ -485,7 +568,9 @@ def handle_generation(inp):
         av = uploaded_image_to_data_uri(inp["avatar_file"], MAX_AVATAR_DIMENSION)
         bar.progress(65, text="🧩 Đang dựng trang tình yêu...")
         html = render_love_page(inp["message"].strip(), inp["primary_color"], bg, av,
-                                yt_id or "", song_title, inp["heart_count"], inp["heart_speed"])
+                                yt_id or "", song_title, inp["heart_count"], inp["heart_speed"],
+                                inp["love_date"].isoformat() if inp["love_date"] else "",
+                                (inp["secret_message"] or "").strip())
         bar.progress(85, text="💾 Đang lưu trang...")
         page_id = save_generated_page(html)
         url = build_share_url(page_id)
